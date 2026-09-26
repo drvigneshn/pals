@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy · PALS Companion</title>
+<style>
+:root{--bg:#0b1016;--txt:#e6edf3;--mut:#8a9aab;--acc:#14b8a6;color-scheme:dark}
+@media (prefers-color-scheme: light){:root{--bg:#f3f6f9;--txt:#0f1720;--mut:#5b6b7c;--acc:#0d9488;color-scheme:light}}
+body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:26px;margin:0 0 4px}h2{font-size:18px;margin:28px 0 6px}
+.mut{color:var(--mut)}a{color:var(--acc)}
+</style>
+</head>
+<body>
+<main>
+<h1>Privacy policy</h1>
+<p class="mut">PALS Companion · last updated 26 September 2026</p>
+
+<p>PALS Companion is a teaching tool. It shows a <b>simulated</b> patient monitor for paediatric resuscitation training and lets an instructor control it from a phone. It is not a medical device and must not be used for real patients.</p>
+
+<h2>No accounts, no personal data</h2>
+<p>You do not sign up or log in. The app does not ask for your name, email, phone number or location, and it contains no analytics, advertising or tracking.</p>
+
+<h2>What is sent between the phone and the monitor</h2>
+<p>When the instructor phone and the monitor screen are paired with a 4-character code, the app sends only the <b>simulated</b> monitor settings (for example heart rate, rhythm, SpO₂, CPR on/off, and the made-up patient age, weight and bed label). Two windows on the same device talk to each other directly inside the browser. Different devices use public message relays (HiveMQ and EMQX public brokers) over an encrypted connection.</p>
+<p>These relays are public services, not private to this app. <b>Never type real patient names, hospital numbers or any other identifying information into the app.</b> The last settings for a pair code may be kept by the relay until they are replaced.</p>
+
+<h2>What is stored on your device</h2>
+<p>The instructor's current scenario, timeline log and settings are saved in the browser's local storage on that phone only, so they survive a screen lock or reload. The monitor remembers its pair code for the browser tab. The app also caches its own files so it works offline. You can remove all of this by clearing the site's data in your browser, or with <i>Setup → Reset everything</i>.</p>
+
+<h2>Children</h2>
+<p>The app is intended for healthcare professionals and trainees. It does not knowingly collect information from anyone.</p>
+
+<h2>Contact</h2>
+<p>Dr Vignesh N · <a href="mailto:n.vignesh.1996@gmail.com">n.vignesh.1996@gmail.com</a></p>
+<p><a href="./">← Back to PALS Companion</a></p>
+</main>
+</body>
+</html>

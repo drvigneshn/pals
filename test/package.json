@@ -1,0 +1,6 @@
+{
+  "name": "pals-companion-tests",
+  "private": true,
+  "description": "Local stand-ins and browser checks for PALS Companion",
+  "dependencies": { "aedes": "0.51.3", "ws": "^8.18.0" }
+}

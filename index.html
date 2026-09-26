@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PALS Companion</title>
+<meta name="description" content="Simulated paediatric bedside monitor for resuscitation training, controlled live from the instructor's phone.">
+<meta name="theme-color" content="#05080c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+/* ============ Theme tokens ============ */
+:root{
+  --bg:#0b1016; --card:#131b24; --card2:#1a2430; --line:#263241; --txt:#e6edf3; --mut:#8a9aab;
+  --acc:#14b8a6; --acc2:#0d9488; --danger:#ef4444; --warn:#f59e0b; --ok:#22c55e; --info:#38bdf8;
+  /* monitor */
+  --m-bg:#000; --m-panel:#05080c; --m-line:#17202b; --m-txt:#d8e1ea; --m-mut:#6b7b8c;
+  --ecg:#3dff72; --pleth:#38d9ff; --co2:#ffd43b; --resp:#f1f5f9; --nibp:#ff8bd8; --temp:#c4a6ff;
+  --al-hi:#ff2d3d; --al-med:#ffc400; --al-tech:#38bdf8;
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --bg:#f3f6f9; --card:#fff; --card2:#eef2f6; --line:#d6dee7; --txt:#0f1720; --mut:#5b6b7c;
+  --acc:#0d9488; --acc2:#0f766e;
+  --m-bg:#f7f9fb; --m-panel:#ffffff; --m-line:#dfe5ec; --m-txt:#111a24; --m-mut:#6b7b8c;
+  --ecg:#00853a; --pleth:#0070b8; --co2:#a87400; --resp:#303a46; --nibp:#b0217f; --temp:#6d3fd1;
+  --al-hi:#e0001b; --al-med:#c98a00; --al-tech:#0284c7;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--txt);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.hide{display:none!important}
+.view{min-height:100%}
+
+/* ============ Chooser ============ */
+#chooser{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;gap:18px;min-height:100vh}
+#chooser h1{margin:0;font-size:28px;letter-spacing:.3px}
+#chooser .tag{color:var(--mut);margin:-10px 0 6px;text-align:center}
+.bigbtn{width:min(440px,100%);display:flex;gap:14px;align-items:center;text-align:left;padding:18px;border-radius:16px;border:1px solid var(--line);background:var(--card)}
+.bigbtn:hover{border-color:var(--acc)}
+.bigbtn .ic{font-size:34px}
+.bigbtn b{display:block;font-size:18px}
+.bigbtn span{color:var(--mut);font-size:14px}
+.fine{color:var(--mut);font-size:12px;text-align:center;max-width:440px}
+
+/* ============ Monitor ============ */
+#mon{position:fixed;inset:0;background:var(--m-bg);color:var(--m-txt);display:grid;grid-template-rows:auto 1fr auto;font-variant-numeric:tabular-nums;overflow:hidden;
+  font-family:"Roboto Condensed","Arial Narrow",system-ui,sans-serif;font-stretch:condensed}
+#mHead{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;padding:4px 10px;min-height:38px;background:var(--m-panel);border-bottom:1px solid var(--m-line);font-size:clamp(12px,2.1vh,20px)}
+#mHead .pt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mHead .right{display:flex;gap:12px;justify-content:flex-end;align-items:center;white-space:nowrap}
+#mBanner{min-width:min(46vw,520px);min-height:1.5em;text-align:center;font-weight:700;letter-spacing:.5px;padding:3px 14px;border-radius:4px;font-size:clamp(13px,2.6vh,26px)}
+#mBanner.p3{background:var(--al-hi);color:#fff;animation:blink 1s steps(2,start) infinite}
+#mBanner.p2{background:var(--al-med);color:#111}
+#mBanner.p1{background:var(--al-tech);color:#04121c}
+#mBanner .more{font-weight:400;opacity:.85;font-size:.8em;margin-left:8px}
+@keyframes blink{to{opacity:.35}}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;background:#666;vertical-align:middle}
+.dot.on{background:var(--ok)}.dot.wait{background:var(--warn)}
+#mMain{display:grid;grid-template-columns:minmax(0,1fr) minmax(118px,27%);grid-template-rows:repeat(4,1fr) minmax(64px,.85fr);min-height:0}
+.row{position:relative;border-bottom:1px solid var(--m-line);min-height:0}
+.row canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.row .lab{position:absolute;left:8px;top:4px;font-size:clamp(11px,1.9vh,18px);z-index:2;pointer-events:none}
+.row .lab small{opacity:.7;margin-left:6px}
+.tile{position:relative;border-left:1px solid var(--m-line);border-bottom:1px solid var(--m-line);padding:4px 10px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.tile .tl{display:flex;justify-content:space-between;align-items:flex-start;font-size:clamp(11px,1.9vh,18px);line-height:1.1}
+.tile .lim{font-size:.75em;opacity:.75;text-align:right;line-height:1.05}
+.tile .big{flex:1;display:flex;align-items:center;justify-content:flex-end;font-weight:600;line-height:1;font-size:clamp(26px,min(10.5vh,10vw),132px);white-space:nowrap}
+.tile .unit{font-size:clamp(10px,1.6vh,16px);opacity:.75;text-align:right}
+.tile.alarm3{box-shadow:inset 0 0 0 3px var(--al-hi);animation:blink 1s steps(2,start) infinite}
+.tile.alarm2{box-shadow:inset 0 0 0 3px var(--al-med)}
+.t-hr{color:var(--ecg)}.t-sp{color:var(--pleth)}.t-co{color:var(--co2)}.t-rr{color:var(--resp)}.t-nibp{color:var(--nibp)}.t-temp{color:var(--temp)}
+.t-co .big{font-size:clamp(24px,min(8.5vh,9vw),110px)}
+.t-co .sub2{font-size:clamp(12px,2.2vh,22px);text-align:right}
+.heart{display:inline-block;transition:transform .08s}
+.heart.beat{transform:scale(1.5)}
+#mBottom{grid-column:1 / 2;display:flex;align-items:stretch;border-bottom:1px solid var(--m-line);min-width:0;overflow:hidden}
+#mBottom .t-nibp{border-left:0;flex:1;flex-direction:row;align-items:center;gap:16px;padding:4px 12px}
+#mBottom .t-nibp .big{flex:0 0 auto;font-size:clamp(22px,min(7.5vh,7vw),90px)}
+.nibpMeta{display:flex;flex-direction:column;font-size:clamp(11px,1.9vh,18px);gap:2px}
+#mFoot{display:flex;justify-content:space-between;gap:10px;padding:2px 10px;white-space:nowrap;overflow:hidden;font-size:clamp(10px,1.6vh,14px);color:var(--m-mut);background:var(--m-panel)}
+#mFoot button{background:none;border:0;color:inherit;padding:0;text-decoration:underline dotted}
+#mFrozen{position:absolute;top:44px;left:50%;transform:translateX(-50%);background:var(--al-tech);color:#04121c;padding:2px 12px;border-radius:4px;font-weight:700;z-index:5}
+.ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;z-index:20;background:rgba(0,0,0,.72)}
+.ovCard{background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:18px;padding:22px;max-width:520px;width:100%;text-align:center;font-family:system-ui,sans-serif}
+.code{font:700 clamp(40px,11vw,64px)/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:10px;margin:8px 0 4px;color:var(--acc)}
+#qrBox{display:flex;justify-content:center;margin:12px 0}
+#qrBox svg,#qrBox img{width:170px;height:170px;background:#fff;padding:8px;border-radius:10px}
+#mReveal{position:absolute;right:28%;top:50%;transform:translateY(-50%);max-width:min(560px,60vw);z-index:6;background:var(--m-panel);border:2px solid var(--al-tech);border-radius:12px;padding:14px 18px;font-family:system-ui,sans-serif;color:var(--m-txt)}
+#mReveal h3{margin:0 0 8px;font-size:clamp(16px,3vh,28px)}
+#mReveal div{font-size:clamp(14px,2.6vh,24px);line-height:1.35;white-space:pre-wrap}
+
+/* ============ Controller ============ */
+#ctl{max-width:720px;margin:0 auto;padding:0 0 84px}
+#cHead{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--line)}
+#cHead h2{margin:0;font-size:17px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:13px;white-space:nowrap}
+.pane{padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
+.card h3{margin:0 0 10px;font-size:14px;text-transform:uppercase;letter-spacing:.6px;color:var(--mut);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(98px,1fr));gap:8px}
+.chip{padding:10px 6px;border-radius:10px;border:1px solid var(--line);background:var(--card2);font-weight:600;font-size:14px;line-height:1.15}
+.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.chip.red.on{background:var(--danger);border-color:var(--danger)}
+.chip small{display:block;font-weight:400;font-size:11px;opacity:.85}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;background:var(--card2);padding:8px 12px;font-size:13px}
+.seg button.on{background:var(--acc);color:#fff}
+.btn{padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:var(--card2);font-weight:600}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.red{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn.warn{background:var(--warn);border-color:var(--warn);color:#111}
+.btn.big{padding:16px;font-size:18px}
+.btn:disabled{opacity:.45}
+.rowf{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.rowf > .grow{flex:1}
+.vit{display:grid;grid-template-columns:62px 44px 1fr 44px 52px;gap:6px;align-items:center;padding:4px 0}
+.vit label{font-weight:700;font-size:14px}
+.vit button{height:42px;border-radius:10px;border:1px solid var(--line);background:var(--card2);font-size:22px;line-height:1}
+.vit input{height:42px;width:100%;text-align:center;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-size:20px;font-weight:700}
+.vit input.changed{border-color:var(--warn);color:var(--warn)}
+.vit .cur{font-size:12px;color:var(--mut);text-align:right}
+.live{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--mut)}
+.live b{color:var(--txt)}
+.tog{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)}
+.tog:last-child{border-bottom:0}
+.sw{position:relative;width:52px;height:30px;border-radius:15px;background:var(--line);border:0;flex:0 0 auto}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:left .15s}
+.sw.on{background:var(--acc)}.sw.on::after{left:25px}
+.fld{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mut)}
+.fld input,.fld select,.fld textarea{padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--txt);font-size:15px;width:100%;min-width:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid2 > *{min-width:0}
+.rowf input{min-width:0}
+#cTabs{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:center;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:10}
+#cTabs button{flex:1;max-width:180px;border:0;background:none;padding:10px 4px 12px;font-size:12px;color:var(--mut);display:flex;flex-direction:column;align-items:center;gap:2px}
+#cTabs button span{font-size:20px}
+#cTabs button.on{color:var(--acc);font-weight:700}
+.timers{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.tm{background:var(--card2);border-radius:12px;padding:10px;border:1px solid var(--line)}
+.tm .k{font-size:12px;color:var(--mut)}
+.tm .v{font:700 28px/1.1 ui-monospace,Menlo,Consolas,monospace}
+.tm.g .v{color:var(--ok)}.tm.a .v{color:var(--warn)}.tm.r .v{color:var(--danger)}
+.dose{text-align:left;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--card2)}
+.dose b{display:block;font-size:14px}
+.dose span{font-size:12px;color:var(--mut)}
+.log{font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;max-height:340px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px}
+.log div{padding:2px 0;border-bottom:1px dashed var(--line)}
+.log .tt{color:var(--acc);margin-right:6px}
+.scen{text-align:left;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--card2);width:100%}
+.scen b{display:block;font-size:15px}
+.scen span{font-size:13px;color:var(--mut)}
+.tagc{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;background:var(--line);color:var(--txt);margin-right:6px;vertical-align:1px}
+.stage{display:flex;gap:10px;align-items:flex-start;text-align:left;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--card2);width:100%}
+.stage.cur{border-color:var(--acc);box-shadow:inset 3px 0 0 var(--acc)}
+.stage .n{flex:0 0 26px;height:26px;border-radius:50%;background:var(--line);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+.stage.cur .n{background:var(--acc);color:#fff}
+.stage .d{font-size:12px;color:var(--mut)}
+.cues{margin:0;padding-left:18px}
+.cues li{margin:4px 0}
+.chk{display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--line)}
+.chk input{width:22px;height:22px;flex:0 0 auto;margin-top:1px;accent-color:var(--acc)}
+.stem{background:var(--card2);border-left:3px solid var(--info);padding:10px;border-radius:8px;font-size:14px}
+.note{font-size:12px;color:var(--mut)}
+.toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);background:var(--txt);color:var(--bg);padding:8px 14px;border-radius:10px;font-size:14px;z-index:50;pointer-events:none;opacity:0;transition:opacity .2s}
+.toast.show{opacity:1}
+#pairBox .code-in{font:700 36px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:10px;text-align:center;text-transform:uppercase;width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--txt)}
+</style>
+</head>
+<body>
+
+<!-- ========== Role chooser ========== -->
+<section id="chooser" class="view hide">
+  <svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0b1016"/><polyline points="6,36 20,36 25,26 30,46 36,14 41,36 58,36" fill="none" stroke="#3dff72" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/></svg>
+  <h1>PALS Companion</h1>
+  <p class="tag">Simulated paediatric monitor for resuscitation teaching.<br>Show it on a laptop or projector, and control it from your phone.</p>
+  <button class="bigbtn" id="goMon"><span class="ic">📺</span><div><b>Monitor screen</b><span>Laptop, tablet or projector that the team looks at</span></div></button>
+  <button class="bigbtn" id="goCtl"><span class="ic">🎛️</span><div><b>Instructor controls</b><span>Your phone: rhythm, vitals, CPR, shocks, scenarios</span></div></button>
+  <p class="fine">For training only. Not a medical device. All values are simulated; never enter real patient details.<br><span class="ver"></span> · created by Dr Vignesh N · <a href="privacy.html" style="color:inherit">Privacy</a></p>
+</section>
+
+<!-- ========== Monitor ========== -->
+<section id="mon" class="hide" aria-label="Simulated patient monitor">
+  <header id="mHead">
+    <div class="pt" id="mPt">Bed 1</div>
+    <div id="mBanner"></div>
+    <div class="right"><span id="mSil"></span><span id="mLink" title="Instructor link"><span class="dot"></span></span><span id="mClock">--:--:--</span></div>
+  </header>
+  <div id="mMain">
+    <div class="row" id="rEcg"><div class="lab t-hr">II <small>×1</small></div><canvas></canvas></div>
+    <div class="tile t-hr" id="tHR"><div class="tl"><span>HR <span class="heart" id="mHeart">♥</span></span><span class="lim" id="limHR"></span></div><div class="big" id="vHR">---</div><div class="unit" id="uHR">bpm</div></div>
+    <div class="row" id="rPl"><div class="lab t-sp">Pleth</div><canvas></canvas></div>
+    <div class="tile t-sp" id="tSP"><div class="tl"><span>SpO₂</span><span class="lim" id="limSP"></span></div><div class="big" id="vSP">---</div><div class="unit" id="uSP">%</div></div>
+    <div class="row" id="rCo"><div class="lab t-co">CO₂ <small>mmHg · 0–50</small></div><canvas></canvas></div>
+    <div class="tile t-co" id="tCO"><div class="tl"><span>EtCO₂</span><span class="lim" id="limCO"></span></div><div class="big" id="vCO">---</div><div class="sub2">awRR <b id="vAW">--</b></div></div>
+    <div class="row" id="rRe"><div class="lab t-rr">Resp</div><canvas></canvas></div>
+    <div class="tile t-rr" id="tRR"><div class="tl"><span>RR</span><span class="lim" id="limRR"></span></div><div class="big" id="vRR">--</div><div class="unit">/min</div></div>
+    <div id="mBottom"><div class="tile t-nibp" id="tNB"><div class="nibpMeta"><span>NIBP <small>mmHg</small></span><span id="nbMode">Manual</span><span id="nbTime"></span></div><div class="big" id="vNB">---/---</div><div class="nibpMeta"><span id="vMAP"></span><span id="nbState"></span></div></div></div>
+    <div class="tile t-temp" id="tTE"><div class="tl"><span>Temp</span><span>°C</span></div><div class="big" id="vTE" style="font-size:clamp(20px,min(6.5vh,6.5vw),80px)">--.-</div></div>
+  </div>
+  <footer id="mFoot"><span>PALS Companion · simulated values · training only</span><span>Pair code <button id="mCodeBtn">----</button></span></footer>
+  <div id="mFrozen" class="hide">FROZEN</div>
+  <div id="mReveal" class="hide"><h3></h3><div></div></div>
+</section>
+
+<!-- Monitor start / pairing overlay -->
+<div id="mStart" class="ov hide">
+  <div class="ovCard">
+    <div style="font-size:14px;color:var(--mut)">Monitor pair code</div>
+    <div class="code" id="mCode">----</div>
+    <div id="qrBox"></div>
+    <p style="margin:0 0 14px;color:var(--mut);font-size:14px">On the instructor phone, open <b id="mUrl">pals.pediaos.com</b>, choose <b>Instructor</b> and type this code, or scan the QR.</p>
+    <button class="btn pri big" id="mGo" style="width:100%">Start monitor</button>
+    <p class="note" style="margin:10px 0 0">Starting also turns on sound (pulse beep and alarms).</p>
+  </div>
+</div>
+
+<!-- ========== Instructor controller ========== -->
+<section id="ctl" class="view hide">
+  <header id="cHead">
+    <h2>PALS Companion</h2>
+    <span class="pill" id="cStat"><span class="dot"></span><span>Not paired</span></span>
+    <button class="pill" id="cCode">----</button>
+  </header>
+
+  <!-- Pairing -->
+  <div class="pane" id="pairBox">
+    <div class="card">
+      <h3>Pair with a monitor</h3>
+      <p style="margin:0 0 10px">Open this site on the laptop, tablet or projector, choose <b>Monitor screen</b>, then type the 4-letter code shown there.</p>
+      <input class="code-in" id="pairIn" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD">
+      <div class="rowf" style="margin-top:10px"><button class="btn pri grow" id="pairGo">Connect</button></div>
+    </div>
+    <div class="card">
+      <h3>Only one device?</h3>
+      <p style="margin:0 0 10px">Open the monitor in a second window on this device, e.g. drag it to the projector screen. The two windows pair automatically.</p>
+      <button class="btn" id="pairLocal">Open monitor window here</button>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="pane hide" id="tabLive"></div>
+  <div class="pane hide" id="tabScen"></div>
+  <div class="pane hide" id="tabTime"></div>
+  <div class="pane hide" id="tabSetup"></div>
+
+  <nav id="cTabs" class="hide">
+    <button data-tab="tabLive" class="on"><span>🫀</span>Live</button>
+    <button data-tab="tabScen"><span>📋</span>Scenario</button>
+    <button data-tab="tabTime"><span>⏱️</span>Timeline</button>
+    <button data-tab="tabSetup"><span>⚙️</span>Setup</button>
+  </nav>
+</section>
+<div class="toast" id="toast"></div>
+
+<script src="lib/mqtt.min.js"></script>
+<script src="lib/qrcode.js"></script>
+<script src="js/core.js"></script>
+<script src="js/scenarios.js"></script>
+<script src="js/monitor.js"></script>
+<script src="js/controller.js"></script>
+</body>
+</html>
