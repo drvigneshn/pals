@@ -75,7 +75,7 @@ Screenshots land in `test/shots/` (git-ignored).
 
 ## Open items (remind the owner until done)
 - [ ] Owner to verify all doses, joules and scenario cue text against current AHA PALS / IAP guidance and unit protocol.
-- [ ] Enable GitHub Pages (Settings → Pages → main / root) and add the Hostinger CNAME `pals` → `drvigneshn.github.io`.
+- [x] GitHub Pages + Hostinger CNAME + HTTPS enforced — site confirmed working at https://pals.pediaos.com (26 Sep 2026).
 - [ ] Real-world test: phone ↔ projector laptop on hospital Wi-Fi via the public relays.
 - [ ] Choose the store name ("PALS" is an AHA programme name; consider a neutral store name).
 - [ ] Android: PWABuilder → TWA, then add `.well-known/assetlinks.json`.
