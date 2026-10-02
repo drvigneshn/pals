@@ -14,6 +14,7 @@ const rhythm = p => p.evaluate(() => PC.Monitor._debug.S.rhythm + (PC.Monitor._d
   const errs = [];
   const page = async (opts = {}, skewMs = 0) => {
     const ctx = await b.newContext(opts);
+    await ctx.addInitScript(() => { try { localStorage.setItem('pals-disclaimer-ack-v1', '1'); } catch {} });
     if (skewMs) await ctx.addInitScript(s => { const n = Date.now; Date.now = () => n() + s; }, skewMs);
     const p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message)); return p;
   };

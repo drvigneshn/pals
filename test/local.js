@@ -9,6 +9,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 800, height: 1280 } });
+  await ctx.addInitScript(() => { try { localStorage.setItem('pals-disclaimer-ack-v1', '1'); } catch {} });
   const errs = [];
   ctx.on('page', p => p.on('pageerror', e => errs.push(e.message)));
   const ctl = await ctx.newPage(); ctl.on('pageerror', e => errs.push(e.message));

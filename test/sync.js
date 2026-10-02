@@ -13,6 +13,8 @@ const ok = (c, msg) => { console.log((c ? 'PASS ' : 'FAIL ') + msg); if (!c) fai
   const errs = [];
   const monCtx = await b.newContext({ viewport: { width: 1280, height: 720 } });
   const ctlCtx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await monCtx.addInitScript(() => { try { localStorage.setItem('pals-disclaimer-ack-v1', '1'); } catch {} });
+  await ctlCtx.addInitScript(() => { try { localStorage.setItem('pals-disclaimer-ack-v1', '1'); } catch {} });
   const mon = await monCtx.newPage(), ctl = await ctlCtx.newPage();
   for (const [n, p] of [['mon', mon], ['ctl', ctl]]) {
     p.on('pageerror', e => errs.push(n + ': ' + e.message));

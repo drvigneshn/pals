@@ -37,9 +37,30 @@ button{cursor:pointer}
 .view{min-height:100%}
 
 /* ============ Chooser ============ */
-#chooser{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;gap:18px;min-height:100vh}
-#chooser h1{margin:0;font-size:28px;letter-spacing:.3px}
-#chooser .tag{color:var(--mut);margin:-10px 0 6px;text-align:center}
+#chooser{display:flex;flex-direction:column;align-items:center;padding:28px 16px 20px;gap:16px;min-height:100vh}
+#chooser h1{margin:0;font-size:30px;letter-spacing:.3px;text-align:center}
+#chooser .tag{color:var(--mut);margin:-8px 0 4px;text-align:center;max-width:560px}
+.land{width:min(640px,100%);display:flex;flex-direction:column;gap:14px}
+.land h2{font-size:17px;margin:0 0 8px}
+.land p{margin:0 0 8px}
+.steps{margin:0;padding-left:22px}
+.steps li{margin:6px 0}
+.feat{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.feat div{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14px}
+.feat b{display:block;margin-bottom:2px}
+.disc{border-left:4px solid var(--warn)}
+.disc ul{margin:6px 0 0;padding-left:20px}
+.disc li{margin:4px 0;font-size:14px}
+.legal{text-align:center;color:var(--mut);font-size:12px;line-height:1.7;padding:14px 16px}
+.legal a{color:inherit}
+#dGate{z-index:60;background:rgba(0,0,0,.8);align-items:flex-start;overflow:auto}
+#dGate .ovCard{text-align:left;max-width:600px;margin:auto}
+#dGate h2{margin:0 0 4px;font-size:20px}
+#dGate ul{padding-left:20px;margin:10px 0}
+#dGate li{margin:6px 0;font-size:14px}
+#dGate .v{font:12px ui-monospace,monospace;color:var(--mut)}
+#dGate label{display:flex;gap:10px;align-items:flex-start;margin:12px 0;font-weight:600}
+#dGate input{width:22px;height:22px;flex:0 0 auto;accent-color:var(--acc)}
 .bigbtn{width:min(440px,100%);display:flex;gap:14px;align-items:center;text-align:left;padding:18px;border-radius:16px;border:1px solid var(--line);background:var(--card)}
 .bigbtn:hover{border-color:var(--acc)}
 .bigbtn .ic{font-size:34px}
@@ -82,7 +103,7 @@ button{cursor:pointer}
 #mBottom .t-nibp{border-left:0;flex:1;flex-direction:row;align-items:center;gap:16px;padding:4px 12px}
 #mBottom .t-nibp .big{flex:0 0 auto;font-size:clamp(22px,min(7.5vh,7vw),90px)}
 .nibpMeta{display:flex;flex-direction:column;font-size:clamp(11px,1.9vh,18px);gap:2px}
-#mFoot{display:flex;justify-content:space-between;gap:10px;padding:2px 10px;white-space:nowrap;overflow:hidden;font-size:clamp(10px,1.6vh,14px);color:var(--m-mut);background:var(--m-panel)}
+#mFoot{display:flex;justify-content:center;gap:18px;padding:2px 10px;white-space:nowrap;overflow:hidden;font-size:clamp(10px,1.6vh,14px);color:var(--m-mut);background:var(--m-panel)}
 #mFoot button{background:none;border:0;color:inherit;padding:0;text-decoration:underline dotted}
 #mFrozen{position:absolute;top:44px;left:50%;transform:translateX(-50%);background:var(--al-tech);color:#04121c;padding:2px 12px;border-radius:4px;font-weight:700;z-index:5}
 .ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;z-index:20;background:rgba(0,0,0,.72)}
@@ -90,6 +111,23 @@ button{cursor:pointer}
 .code{font:700 clamp(40px,11vw,64px)/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:10px;margin:8px 0 4px;color:var(--acc)}
 #qrBox{display:flex;justify-content:center;margin:12px 0}
 #qrBox svg,#qrBox img{width:170px;height:170px;background:#fff;padding:8px;border-radius:10px}
+#mCpr{display:flex;align-items:center;gap:14px;padding:4px 12px;border-left:1px solid var(--m-line);font-size:clamp(11px,1.9vh,18px);color:var(--m-txt);min-width:0}
+#mCpr .k{color:var(--m-mut);font-size:.85em}
+#mCpr .bar{width:clamp(60px,12vw,180px);height:10px;border-radius:5px;background:var(--m-line);position:relative;overflow:hidden}
+#mCpr .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:5px;background:var(--ecg)}
+#mCpr .bar u{position:absolute;top:-2px;bottom:-2px;border-left:2px solid var(--m-mut);border-right:2px solid var(--m-mut);text-decoration:none}
+#mCpr b{font-size:1.5em}
+#mCpr .bad{color:var(--al-hi)}#mCpr .warn{color:var(--al-med)}#mCpr .good{color:var(--ecg)}
+#mDeb{position:absolute;inset:44px 18px 30px;z-index:7;background:var(--m-panel);border:2px solid var(--al-tech);border-radius:14px;padding:16px 20px;font-family:system-ui,sans-serif;color:var(--m-txt);overflow:auto}
+#mDeb h3{margin:0 0 12px;font-size:clamp(18px,3.4vh,32px)}
+#mDeb .mg{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-bottom:14px}
+#mDeb .mg div{border:1px solid var(--m-line);border-radius:10px;padding:8px 12px}
+#mDeb .mg span{display:block;font-size:clamp(11px,1.8vh,16px);color:var(--m-mut)}
+#mDeb .mg b{font-size:clamp(18px,3.6vh,34px)}
+#mDeb .g b{color:var(--ecg)}#mDeb .a b{color:var(--al-med)}#mDeb .r b{color:var(--al-hi)}
+#mDeb ol{margin:0;padding:0;list-style:none;columns:2;column-gap:28px;font-size:clamp(12px,2.1vh,19px)}
+#mDeb li{break-inside:avoid;padding:3px 0;border-bottom:1px dashed var(--m-line)}
+#mDeb li i{font-style:normal;color:var(--al-tech);font-family:ui-monospace,monospace;margin-right:8px}
 #mReveal{position:absolute;right:28%;top:50%;transform:translateY(-50%);max-width:min(560px,60vw);z-index:6;background:var(--m-panel);border:2px solid var(--al-tech);border-radius:12px;padding:14px 18px;font-family:system-ui,sans-serif;color:var(--m-txt)}
 #mReveal h3{margin:0 0 8px;font-size:clamp(16px,3vh,28px)}
 #mReveal div{font-size:clamp(14px,2.6vh,24px);line-height:1.35;white-space:pre-wrap}
@@ -166,6 +204,30 @@ button{cursor:pointer}
 .chk input{width:22px;height:22px;flex:0 0 auto;margin-top:1px;accent-color:var(--acc)}
 .stem{background:var(--card2);border-left:3px solid var(--info);padding:10px;border-radius:8px;font-size:14px}
 .note{font-size:12px;color:var(--mut)}
+.met{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.met div{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:9px 10px}
+.met span{display:block;font-size:12px;color:var(--mut)}
+.met b{font:700 22px/1.2 ui-monospace,Menlo,Consolas,monospace}
+.met small{display:block;font-size:11px;color:var(--mut)}
+.met .g b{color:var(--ok)}.met .a b{color:var(--warn)}.met .r b{color:var(--danger)}
+.tline{list-style:none;margin:0;padding:0 0 0 14px;border-left:2px solid var(--line)}
+.tline li{position:relative;padding:4px 0 4px 10px;font-size:14px}
+.tline li::before{content:"";position:absolute;left:-20px;top:10px;width:10px;height:10px;border-radius:50%;background:var(--line)}
+.tline li.k-shock::before{background:var(--warn)}.tline li.k-drug::before{background:var(--info)}.tline li.k-cpr::before{background:var(--danger)}
+.tline li.k-rosc::before{background:var(--ok)}.tline li.k-surprise::before{background:#a855f7}.tline li.k-stage::before{background:var(--acc)}
+.tline i{font-style:normal;font-family:ui-monospace,monospace;color:var(--acc);margin-right:6px}
+.qa{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.qa .chip{padding:12px 4px;min-width:0;font-size:13px}
+.qa.ev{grid-template-columns:repeat(auto-fill,minmax(98px,1fr))}
+.sheet{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.chip.purple{border-color:#a855f7}
+.chip.purple.on,.btn.purple{background:#7e22ce;border-color:#7e22ce;color:#fff}
+@media print{
+  body.print-deb *{visibility:hidden}
+  body.print-deb #tabDeb,body.print-deb #tabDeb *{visibility:visible}
+  body.print-deb #tabDeb{position:absolute;left:0;top:0;width:100%}
+  body.print-deb .noprint{display:none!important}
+}
 .toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);background:var(--txt);color:var(--bg);padding:8px 14px;border-radius:10px;font-size:14px;z-index:50;pointer-events:none;opacity:0;transition:opacity .2s}
 .toast.show{opacity:1}
 #pairBox .code-in{font:700 36px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:10px;text-align:center;text-transform:uppercase;width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--txt)}
@@ -177,11 +239,70 @@ button{cursor:pointer}
 <section id="chooser" class="view hide">
   <svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0b1016"/><polyline points="6,36 20,36 25,26 30,46 36,14 41,36 58,36" fill="none" stroke="#3dff72" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/></svg>
   <h1>PALS Companion</h1>
-  <p class="tag">Simulated paediatric monitor for resuscitation teaching.<br>Show it on a laptop or projector, and control it from your phone.</p>
+  <p class="tag">A two-screen simulation room for paediatric resuscitation teaching. The team watches a realistic monitor; the instructor runs the case from a phone.</p>
   <button class="bigbtn" id="goMon"><span class="ic">📺</span><div><b>Monitor screen</b><span>Laptop, tablet or projector that the team looks at</span></div></button>
-  <button class="bigbtn" id="goCtl"><span class="ic">🎛️</span><div><b>Instructor controls</b><span>Your phone: rhythm, vitals, CPR, shocks, scenarios</span></div></button>
-  <p class="fine">For training only. Not a medical device. All values are simulated; never enter real patient details.<br><span class="ver"></span> · created by Dr Vignesh N · <a href="privacy.html" style="color:inherit">Privacy</a></p>
+  <button class="bigbtn" id="goCtl"><span class="ic">🎛️</span><div><b>Instructor controls</b><span>Your phone: scenarios, rhythm, vitals, CPR, shocks, debrief</span></div></button>
+
+  <div class="land">
+    <div class="card"><h2>What it is</h2>
+      <p>PALS Companion turns any laptop or projector into a simulated paediatric bedside monitor: ECG, pleth, capnography and respiration waveforms with HR, SpO₂, EtCO₂, RR, BP and temperature, alarms and sound. You control everything live from your phone, so a manikin, a mock code or a viva becomes a realistic resuscitation scenario.</p>
+      <p style="margin:0">No accounts, no installation, nothing to buy. It works in the browser and keeps working offline once opened.</p>
+    </div>
+
+    <div class="card"><h2>How to use it</h2>
+      <ol class="steps">
+        <li>On the laptop or projector, open <b>pals.pediaos.com</b> and tap <b>Monitor screen</b>. A QR code and a 4-letter code appear.</li>
+        <li>On your phone, <b>scan the QR code</b> (or open the site, tap <b>Instructor controls</b> and type the code). The phone header turns green: <b>Monitor online</b>.</li>
+        <li>On the monitor, tap <b>Start monitor</b> to turn on the sound.</li>
+        <li>On your phone, open <b>Scenario</b>, pick a case, read the stem to the team and press <b>Start</b>. Move through the stages with <b>Next stage</b> while you tick what the team does.</li>
+        <li>Use <b>Live</b> for instant changes: rhythm, vitals, CPR, shock, drugs given, and <b>⚡ Surprise</b> complications.</li>
+        <li>At the end, open <b>Debrief</b>: time to CPR, time to first shock, adrenaline timing, CPR fraction and the full timeline. Show it on the monitor for the group discussion.</li>
+      </ol>
+      <p class="note" style="margin:8px 0 0"><b>Only one device?</b> In the instructor screen tap <b>Open monitor window here</b> and drag that window onto the projector.</p>
+    </div>
+
+    <div class="card"><h2>What you can do</h2>
+      <div class="feat">
+        <div><b>12 ready scenarios</b>VF, asystole, PEA, SVT, bradycardia, sepsis, dengue, asthma, anaphylaxis, scorpion sting, hyperkalaemia</div>
+        <div><b>Realistic monitor</b>HR counts compressions during CPR, EtCO₂ follows CPR quality and jumps on ROSC, PEA gives no rhythm alarm</div>
+        <div><b>Exam mode</b>Alarms say only "ALARM", so the team must read the rhythm themselves</div>
+        <div><b>Automated debrief</b>Key times, CPR fraction, hands-off time, checklist score and a timeline you can print or save as PDF</div>
+      </div>
+    </div>
+
+    <div class="card disc"><h2>⚠️ Disclaimer</h2>
+      <ul>
+        <li><b>For education and simulation training only.</b> Not a medical device. Do not use it to monitor, diagnose or treat real patients.</li>
+        <li>All waveforms and numbers are <b>simulated</b> and may not behave like a real patient or monitor.</li>
+        <li>Doses, energies and scenario content are teaching aids. <b>Verify against current AHA PALS / IAP guidance and your local protocol.</b></li>
+        <li>Never enter real patient names or identifiers. Phone and monitor talk through public relays.</li>
+        <li>"PALS" is a programme of the American Heart Association. This app is independent and not affiliated with or endorsed by the AHA.</li>
+        <li>Provided as is, without warranty. The author accepts no liability for any use of this tool.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="legal">PALS Companion <span class="ver"></span> · created by Dr Vignesh N<br>Not for reuse or redistribution without written permission. · <a href="about.html">About</a> · <a href="privacy.html">Privacy</a></footer>
 </section>
+
+<!-- ========== Disclaimer gate (once per device) ========== -->
+<div id="dGate" class="ov hide" role="dialog" aria-modal="true" aria-labelledby="dgT">
+  <div class="ovCard">
+    <h2 id="dgT">Before you start</h2>
+    <div class="v">PALS Companion <span class="ver"></span></div>
+    <ul>
+      <li><b>For education and simulation training only.</b> Not a medical device; never use it for real patients.</li>
+      <li>All monitor values are <b>simulated</b>.</li>
+      <li>Doses, energies and cues are teaching aids: <b>verify against current AHA PALS / IAP guidance and local protocol.</b></li>
+      <li>Do not enter real patient details. The link between devices uses public relays.</li>
+      <li>Not affiliated with or endorsed by the American Heart Association.</li>
+      <li>Provided as is, without warranty or liability.</li>
+    </ul>
+    <label><input type="checkbox" id="dgChk"> I understand this is a training tool and not for clinical use.</label>
+    <button class="btn pri big" id="dgGo" style="width:100%" disabled>Continue</button>
+    <p class="legal" style="padding:10px 0 0">Not for reuse or redistribution without written permission. · <a href="about.html">About</a> · <a href="privacy.html">Privacy</a></p>
+  </div>
+</div>
 
 <!-- ========== Monitor ========== -->
 <section id="mon" class="hide" aria-label="Simulated patient monitor">
@@ -199,12 +320,13 @@ button{cursor:pointer}
     <div class="tile t-co" id="tCO"><div class="tl"><span>EtCO₂</span><span class="lim" id="limCO"></span></div><div class="big" id="vCO">---</div><div class="sub2">awRR <b id="vAW">--</b></div></div>
     <div class="row" id="rRe"><div class="lab t-rr">Resp</div><canvas></canvas></div>
     <div class="tile t-rr" id="tRR"><div class="tl"><span>RR</span><span class="lim" id="limRR"></span></div><div class="big" id="vRR">--</div><div class="unit">/min</div></div>
-    <div id="mBottom"><div class="tile t-nibp" id="tNB"><div class="nibpMeta"><span>NIBP <small>mmHg</small></span><span id="nbMode">Manual</span><span id="nbTime"></span></div><div class="big" id="vNB">---/---</div><div class="nibpMeta"><span id="vMAP"></span><span id="nbState"></span></div></div></div>
+    <div id="mBottom"><div class="tile t-nibp" id="tNB"><div class="nibpMeta"><span>NIBP <small>mmHg</small></span><span id="nbMode">Manual</span><span id="nbTime"></span></div><div class="big" id="vNB">---/---</div><div class="nibpMeta"><span id="vMAP"></span><span id="nbState"></span></div></div><div id="mCpr" class="hide"></div></div>
     <div class="tile t-temp" id="tTE"><div class="tl"><span>Temp</span><span>°C</span></div><div class="big" id="vTE" style="font-size:clamp(20px,min(6.5vh,6.5vw),80px)">--.-</div></div>
   </div>
-  <footer id="mFoot"><span>PALS Companion · simulated values · training only</span><span>Pair code <button id="mCodeBtn">----</button></span></footer>
+  <footer id="mFoot"><span>PALS Companion <span class="ver"></span> · simulated values · training only · not for reuse or redistribution without written permission</span><span>Pair code <button id="mCodeBtn">----</button></span></footer>
   <div id="mFrozen" class="hide">FROZEN</div>
   <div id="mReveal" class="hide"><h3></h3><div></div></div>
+  <div id="mDeb" class="hide"></div>
 </section>
 
 <!-- Monitor start / pairing overlay -->
@@ -246,12 +368,15 @@ button{cursor:pointer}
   <div class="pane hide" id="tabLive"></div>
   <div class="pane hide" id="tabScen"></div>
   <div class="pane hide" id="tabTime"></div>
+  <div class="pane hide" id="tabDeb"></div>
   <div class="pane hide" id="tabSetup"></div>
+  <footer class="legal noprint" id="cLegal">PALS Companion <span class="ver"></span> · created by Dr Vignesh N<br>Not for reuse or redistribution without written permission. · <a href="about.html">About</a> · <a href="privacy.html">Privacy</a></footer>
 
   <nav id="cTabs" class="hide">
     <button data-tab="tabLive" class="on"><span>🫀</span>Live</button>
     <button data-tab="tabScen"><span>📋</span>Scenario</button>
     <button data-tab="tabTime"><span>⏱️</span>Timeline</button>
+    <button data-tab="tabDeb"><span>📊</span>Debrief</button>
     <button data-tab="tabSetup"><span>⚙️</span>Setup</button>
   </nav>
 </section>

@@ -11,10 +11,11 @@ rhythm, vitals, CPR, shocks, alarms and ready-made scenarios.
 2. On your phone, scan the QR code (or open the site, choose **Instructor controls** and type the code).
 3. On the monitor, press **Start monitor** (this also turns on the sound).
 4. On the phone:
-   - **Live**: change rhythm (instant), stage vitals and apply them with a drift (now / 10 s / 30 s / 1 min / 2 min), start/stop CPR, shock, sync, ROSC, NIBP, silence alarms.
+   - **Live**: one-tap quick actions (VF, pVT, PEA, asystole, brady, SVT, hypoxia, ROSC) and team events (adrenaline, amiodarone, airway, IV/IO…), CPR/shock/sync, ⚡ Surprise complications, staged vitals with a drift (now / 10 s / 30 s / 1 min / 2 min).
    - **Scenario**: pick a case, read the stem to the team, then step through stages with **Next stage**. Cues and doses show only on your phone. Tick what the team does.
    - **Timeline**: scenario clock, 2-minute CPR cycle, time since adrenaline, one-tap weight-based drug log, copyable log with checklist score.
-   - **Setup**: patient age/weight, sensors on/off (leads, probe, CO₂ line, cuff), capnogram shape, monitor theme, freeze for debrief, show a result card (ABG, ECG, X-ray…) on the monitor.
+   - **Debrief**: time to CPR, first shock, adrenaline timing, CPR fraction, hands-off time, checklist and timeline; show on the monitor, copy, or print/save PDF.
+   - **Setup**: exam mode (alarms say only "ALARM"), CPR feedback panel, patient age/weight, sensors on/off (leads, probe, CO₂ line, cuff), capnogram shape, monitor theme, freeze for debrief, show a result card (ABG, ECG, X-ray…) on the monitor.
 
 **Only one device?** In the instructor screen choose **Open monitor window here** and drag that window onto the projector.
 
@@ -34,4 +35,4 @@ Never type real patient details. See `privacy.html`.
 Plain static files, no build step, served by GitHub Pages from `main`.
 Custom domain via `CNAME` (`pals.pediaos.com`) and a CNAME DNS record `pals → drvigneshn.github.io`.
 
-Created by Dr Vignesh N.
+Created by Dr Vignesh N. © 2026. Not for reuse or redistribution without written permission.

@@ -12,33 +12,46 @@ let staged = { ...S.v };
 let ramp = saved.ramp != null ? saved.ramp : 10000;
 let energyKey = saved.energyKey || 'd2';
 let log = saved.log || [];
-let T = Object.assign({ scRun: false, scStart: 0, scAcc: 0, cycleStart: 0, adrAt: 0, shocks: 0, adr: 0 }, saved.T);
+let T = Object.assign({ scRun: false, scStart: 0, scAcc: 0, cycleStart: 0, adrAt: 0, shocks: 0, adr: 0, startAt: 0, endAt: 0 }, saved.T);
 let sc = Object.assign({ id: null, stage: -1, ticks: {}, visited: [], ended: false }, saved.sc);
 let code = saved.code || '';
+let ev = saved.ev || [];          // structured events for the debrief (snapshots, shocks, drugs, …)
+let snap = saved.snap || null;    // last perfusion/CPR/shockable snapshot
+let active = saved.active || {};  // surprise complications still in effect
 let tab = saved.tab || 'tabLive';
 let link = null, monSeenAt = 0, otherCtl = false, linkStat = { relays: 0, of: 0, local: false };
 let scList = !sc.id;
 
-const save = () => PC.store.set(KEY, { S, ramp, energyKey, log, T, sc, code, tab });
+const save = () => PC.store.set(KEY, { S, ramp, energyKey, log, T, sc, code, tab, ev, snap, active });
+const NEW_T = () => ({ scRun: false, scStart: 0, scAcc: 0, cycleStart: 0, adrAt: 0, shocks: 0, adr: 0, startAt: 0, endAt: 0 });
+const age = () => PC.AGE[S.pt.group] || PC.AGE.child;
+const SHOCKABLE = st => ['vf', 'vffine', 'torsades'].includes(st.rhythm) || (st.rhythm === 'vt' && !st.pulse);
+function mark(type, data) { ev.push(Object.assign({ at: Date.now(), type }, data || {})); if (ev.length > 1000) ev = ev.slice(-1000); }
+/* Record every change in perfusion, CPR or shockable rhythm; the debrief integrates these. */
+function track() {
+  const n = { perf: PC.perfusing(S), cpr: !!S.cpr, shockable: SHOCKABLE(S) };
+  if (!snap || n.perf !== snap.perf || n.cpr !== snap.cpr || n.shockable !== snap.shockable) { mark('snap', n); snap = n; }
+}
 const wt = () => Number(S.pt.wt) || 10;
 const scen = () => PC.SCENARIOS.find(s => s.id === sc.id);
 
 function send() {
   S.t = Math.max(Date.now(), (S.t || 0) + 1);
   otherCtl = false;
+  track();
   if (link) link.sendState(S);
   save(); renderLive(); renderSetup(false);
 }
-function addLog(txt) {
-  log.push({ at: Date.now(), txt });
+function addLog(txt, kind) {
+  if (!T.startAt) T.startAt = Date.now();
+  log.push({ at: Date.now(), txt, kind: kind || '' });
   if (log.length > 600) log = log.slice(-600);
   save(); renderLog();
+  if (tab === 'tabDeb') renderDeb();
 }
 const scElapsed = (now = Date.now()) => T.scAcc + (T.scRun ? now - T.scStart : 0);
-const logRel = at => {
-  const base = T.scStart ? T.scStart - T.scAcc : (log[0] ? log[0].at : at);
-  return PC.mmss(at - base);
-};
+// Log times count from the start of the session (scenario start, or the first logged action).
+const logRel = at => PC.mmss(at - (T.startAt || (log[0] ? log[0].at : at)));
 
 /* ---------- vitals / rhythm actions ---------- */
 const VIT = [
@@ -60,14 +73,22 @@ function applyVitals() {
   const changed = VIT.filter(x => Number(staged[x.k]) !== Number(S.v[x.k]));
   const bpChanged = changed.some(x => x.k === 'sbp' || x.k === 'dbp');
   S.v = { ...staged }; S.vt = Date.now(); S.ramp = ramp;
-  if (changed.length) addLog('Vitals → ' + changed.map(x => `${x.l} ${fmtV(x.k, staged[x.k])}`).join(', ') + (ramp ? ' over ' + RAMPS.find(r => r[0] === ramp)[1] : ''));
+  if (changed.length) addLog('Vitals → ' + changed.map(x => `${x.l} ${fmtV(x.k, staged[x.k])}`).join(', ') + (ramp ? ' over ' + RAMPS.find(r => r[0] === ramp)[1] : ''), 'vitals');
   send();
-  // The monitor's BP only changes when the cuff cycles, so start a measurement timed to finish
-  // as the new BP is reached (a cycle takes ~17 s).
-  if (bpChanged && S.cuff) {
-    clearTimeout(nibpTimer);
-    nibpTimer = setTimeout(() => { S.nibpAt = Date.now(); addLog('NIBP measurement (BP changed)'); send(); }, Math.max(0, ramp - 15000));
-  }
+  if (bpChanged) nibpAfter(ramp);
+}
+/* The monitor's BP only changes when the cuff cycles, so start a measurement timed to finish
+   as the new BP is reached (a cycle takes ~17 s). */
+function nibpAfter(rampMs) {
+  if (!S.cuff) return;
+  clearTimeout(nibpTimer);
+  nibpTimer = setTimeout(() => { S.nibpAt = Date.now(); addLog('NIBP measurement (BP changed)'); send(); }, Math.max(0, rampMs - 15000));
+}
+/* Apply vitals straight away (quick actions and surprises), keeping the staged editor in step. */
+function setVitals(patch, rampMs) {
+  const bp = 'sbp' in patch || 'dbp' in patch;
+  S.v = Object.assign({}, S.v, patch); staged = { ...S.v }; S.vt = Date.now(); S.ramp = rampMs;
+  if (bp) nibpAfter(rampMs);
 }
 function setRhythm(key) {
   const r = PC.RHYTHMS.find(x => x.key === key); if (!r) return;
@@ -79,13 +100,13 @@ function setRhythm(key) {
   if (key === 'pea' && (S.v.hr < 20 || S.v.hr > 160)) want = 60;
   if (want != null) { S.v.hr = want; staged.hr = want; S.vt = Date.now(); S.ramp = 0; }
   if (!r.arrest && r.pulse && S.v.sbp < 40) { S.v.sbp = norm.sbp; S.v.dbp = norm.dbp; staged.sbp = norm.sbp; staged.dbp = norm.dbp; S.vt = Date.now(); S.ramp = 0; }
-  addLog('Rhythm → ' + PC.rhythmName(S));
+  addLog('Rhythm → ' + PC.rhythmName(S), 'rhythm');
   send();
 }
 function toggleCPR() {
   S.cpr = !S.cpr;
   if (S.cpr) T.cycleStart = Date.now();
-  addLog(S.cpr ? 'CPR started' : 'CPR stopped');
+  addLog(S.cpr ? 'CPR started' : 'CPR stopped', 'cpr');
   send();
 }
 function energy() {
@@ -97,7 +118,8 @@ function energy() {
 function doShock() {
   const e = energy(), J = PC.joules(e.per, wt());
   S.shockAt = Date.now(); S.shockJ = J; T.shocks++;
-  addLog(`⚡ ${S.sync ? 'Synchronised cardioversion' : 'Shock'} ${J} J (${e.label}) #${T.shocks}`);
+  mark('shock', { J, sync: !!S.sync });
+  addLog(`⚡ ${S.sync ? 'Synchronised cardioversion' : 'Shock'} ${J} J (${e.label}) #${T.shocks}`, 'shock');
   send();
   const b = $('#bShock'); if (b) { b.disabled = true; setTimeout(() => (b.disabled = false), 1500); }
 }
@@ -106,19 +128,111 @@ function rosc() {
   S.rhythm = 'sinus'; S.pulse = true; S.cpr = false;
   S.v = Object.assign({}, S.v, { hr: Math.round(n.hr * 1.2), spo2: 94, rr: S.v.rr || n.rr, etco2: 44, sbp: Math.round(n.sbp * 0.85), dbp: Math.round(n.dbp * 0.85) });
   staged = { ...S.v }; S.vt = Date.now(); S.ramp = 20000;
-  addLog('ROSC');
+  addLog('ROSC', 'rosc');
   send();
+}
+
+/* ---------- drugs, team events, quick actions, surprises ---------- */
+const EVENTS = [
+  { key: 'adr', label: 'Adrenaline', drug: 'adr' },
+  { key: 'amio', label: 'Amiodarone', drug: 'amio' },
+  { key: 'bolus', label: 'Fluid bolus', drug: 'bolus' },
+  { key: 'check', label: 'Pulse check' },
+  { key: 'airway', label: 'Airway secured' },
+  { key: 'access', label: 'IV / IO in' },
+  { key: 'bvm', label: 'BVM started' },
+  { key: 'glucose', label: 'Glucose checked' },
+];
+function logDrug(key) {
+  const d = PC.DOSES.find(x => x.key === key); if (!d) return;
+  if (key === 'adr') { T.adrAt = Date.now(); T.adr++; }
+  mark('drug', { key });
+  addLog(`💉 ${d.name} ${d.calc(wt())}`, 'drug'); PC.toast(d.name + ' logged'); renderTimers();
+}
+function logEvent(key) {
+  const e = EVENTS.find(x => x.key === key); if (!e) return;
+  if (e.drug) return logDrug(e.drug);
+  if (key === 'check') T.cycleStart = Date.now();
+  mark('event', { key });
+  addLog('✚ ' + e.label, 'event'); PC.toast(e.label + ' logged'); renderTimers();
+}
+const QUICK = [['vf', 'VF', 'red'], ['pvt', 'pVT', 'red'], ['pea', 'PEA', 'red'], ['asys', 'Asystole', 'red'],
+  ['brady', 'Brady', ''], ['svt', 'SVT', ''], ['hypox', 'Hypoxia', ''], ['rosc', 'ROSC', 'pri']];
+function quick(k) {
+  if (['vf', 'pvt', 'pea', 'asys', 'svt'].includes(k)) return setRhythm(k);
+  if (k === 'rosc') return rosc();
+  const g = age(), n = g.norm;
+  if (k === 'brady') {
+    S.rhythm = 'sinus'; S.pulse = true;
+    const p = { hr: Math.max(35, Math.round(g.hr[0] * 0.6)) };
+    if (S.v.sbp < 40) Object.assign(p, { sbp: Math.round(n.sbp * 0.8), dbp: Math.round(n.dbp * 0.8) });
+    setVitals(p, 10000); addLog('Bradycardia: HR ' + S.v.hr, 'rhythm');
+  }
+  if (k === 'hypox') {
+    setVitals({ spo2: 80, hr: Math.round(Math.min(g.hr[1] * 1.15, Math.max(S.v.hr, n.hr) * 1.2)) }, 20000);
+    addLog('Hypoxia: SpO₂ → 80 over 20 s', 'surprise');
+  }
+  send();
+}
+const SURPRISES = [
+  { key: 'tube', label: 'Tube dislodged', sub: 'no CO₂, SpO₂ falls', when: 'any', fix: 'Tube re-sited' },
+  { key: 'leads', label: 'Leads off', sub: 'technical alarm', when: 'any', fix: 'Leads reattached' },
+  { key: 'probe', label: 'SpO₂ probe off', sub: 'technical alarm', when: 'any', fix: 'Probe replaced' },
+  { key: 'poorcpr', label: 'Poor CPR', sub: 'slow, shallow', when: 'cpr', fix: 'CPR quality corrected' },
+  { key: 'revf', label: 'Re-arrest: VF', when: 'perf' },
+  { key: 'repea', label: 'Re-arrest: PEA', when: 'perf' },
+  { key: 'brady', label: 'Bradycardia', when: 'perf' },
+  { key: 'svt', label: 'SVT', when: 'perf' },
+  { key: 'hypot', label: 'Hypotension', when: 'perf' },
+  { key: 'desat', label: 'Desaturation', when: 'perf' },
+  { key: 'ptx', label: 'Tension pneumothorax', sub: 'SpO₂↓ BP↓ HR↑', when: 'perf' },
+];
+function surprise(key) {
+  const x = SURPRISES.find(s => s.key === key); if (!x) return;
+  const g = age(), n = g.norm, p = PC.perfusing(S);
+  switch (key) {
+    case 'tube': active.tube = { spo2: S.v.spo2 }; S.noVent = true; if (p) setVitals({ spo2: 72 }, 60000); break;
+    case 'leads': active.leads = 1; S.leads = false; break;
+    case 'probe': active.probe = 1; S.probe = false; break;
+    case 'poorcpr': active.poorcpr = 1; S.cprQ = 'poor'; break;
+    case 'revf': S.rhythm = 'vf'; S.pulse = false; break;
+    case 'repea': S.rhythm = 'sinus'; S.pulse = false; setVitals({ hr: 55 }, 0); break;
+    case 'brady': S.rhythm = 'sinus'; S.pulse = true; setVitals({ hr: Math.max(35, Math.round(g.hr[0] * 0.6)) }, 10000); break;
+    case 'svt': S.rhythm = 'svt'; S.pulse = true; setVitals({ hr: S.pt.group === 'infant' || S.pt.group === 'neo' ? 270 : 230 }, 0); break;
+    case 'hypot': setVitals({ sbp: g.sbpLow - 15, dbp: Math.round((g.sbpLow - 15) * 0.55), hr: Math.round(Math.max(S.v.hr, n.hr) * 1.15) }, 20000); break;
+    case 'desat': setVitals({ spo2: 82 }, 20000); break;
+    case 'ptx': setVitals({ spo2: 78, sbp: g.sbpLow - 10, dbp: Math.round((g.sbpLow - 10) * 0.55), hr: Math.round(Math.max(S.v.hr, n.hr) * 1.2) }, 20000); break;
+  }
+  mark('surprise', { key });
+  addLog('⚡ Surprise: ' + x.label, 'surprise');
+  send(); PC.toast('Surprise: ' + x.label);
+}
+function fixSurprise(key) {
+  const x = SURPRISES.find(s => s.key === key); if (!x || !active[key]) return;
+  if (key === 'tube') { S.noVent = false; if (PC.perfusing(S)) setVitals({ spo2: active.tube.spo2 || 96 }, 30000); }
+  if (key === 'leads') S.leads = true;
+  if (key === 'probe') S.probe = true;
+  if (key === 'poorcpr') S.cprQ = 'good';
+  delete active[key];
+  mark('fix', { key }); addLog('✔ ' + x.fix, 'event'); send();
+}
+function randomSurprise() {
+  const p = PC.perfusing(S);
+  const opts = SURPRISES.filter(x => !active[x.key] && (x.when === 'any' || (x.when === 'perf' && p) || (x.when === 'cpr' && S.cpr)));
+  if (!opts.length) return PC.toast('No surprise fits right now');
+  surprise(opts[Math.floor(Math.random() * opts.length)].key);
 }
 
 /* ---------- scenario actions ---------- */
 function startScenario(at = 0) {
   const s = scen(); if (!s) return;
   if (log.length && !confirm('Start this scenario? The current timeline log will be cleared.')) return;
-  log = []; T = { scRun: true, scStart: Date.now(), scAcc: 0, cycleStart: 0, adrAt: 0, shocks: 0, adr: 0 };
+  log = []; ev = []; snap = null; active = {};
+  T = Object.assign(NEW_T(), { scRun: true, scStart: Date.now(), startAt: Date.now() });
   sc.stage = -1; sc.ticks = {}; sc.visited = []; sc.ended = false;
-  const keep = { monTheme: S.monTheme, beep: S.beep, alarms: S.alarms, nibpAt: S.nibpAt, shockAt: S.shockAt, silenceAt: S.silenceAt };
+  const keep = { monTheme: S.monTheme, beep: S.beep, alarms: S.alarms, exam: S.exam, cprBar: S.cprBar, nibpAt: S.nibpAt, shockAt: S.shockAt, silenceAt: S.silenceAt };
   S = Object.assign(PC.defaultState(), keep, { pt: Object.assign({}, s.pt) });
-  addLog('Scenario started: ' + s.title);
+  addLog('Scenario started: ' + s.title, 'stage');
   loadStage(at, 0);
 }
 function loadStage(i, rampOverride) {
@@ -130,15 +244,15 @@ function loadStage(i, rampOverride) {
   staged = { ...S.v }; S.vt = Date.now();
   S.ramp = rampOverride != null ? rampOverride : (st.ramp != null ? st.ramp : 15000);
   sc.stage = i; if (!sc.visited.includes(i)) sc.visited.push(i);
-  addLog(`Stage ${i + 1}: ${st.name}`);
+  addLog(`Stage ${i + 1}: ${st.name}`, 'stage');
   send(); renderScen();
 }
 function endScenario() {
   if (T.scRun) { T.scAcc = scElapsed(); T.scRun = false; }
-  sc.ended = true;
+  sc.ended = true; T.endAt = Date.now();
   const sco = score();
-  addLog(`Scenario ended · checklist ${sco.done}/${sco.total}`);
-  save(); renderScen(); showTab('tabTime');
+  addLog(`Scenario ended · checklist ${sco.done}/${sco.total}`, 'stage');
+  save(); renderScen(); showTab('tabDeb');
 }
 function score() {
   const s = scen(); if (!s) return { done: 0, total: 0 };
@@ -154,6 +268,11 @@ function segHTML(id, opts, cur) {
 function buildLive() {
   $('#tabLive').innerHTML = `
   <div class="card"><h3>On the monitor now <span class="note" id="linkNote"></span></h3><div class="live" id="liveNow"></div></div>
+  <div class="card"><h3>Quick actions <span class="note">one tap, instant</span></h3>
+    <div class="qa" id="qaRh">${QUICK.map(([k, l, c]) => `<button class="chip ${c === 'red' ? 'red' : ''}" data-q="${k}" ${c === 'pri' ? 'style="border-color:var(--ok)"' : ''}>${l}</button>`).join('')}</div>
+    <div class="note" style="margin:10px 0 6px">Team did… (logged for the debrief)</div>
+    <div class="qa ev" id="qaEv">${EVENTS.map(e => `<button class="chip" data-ev="${e.key}">${e.label}</button>`).join('')}</div>
+  </div>
   <div class="card"><h3>Arrest</h3>
     <div class="rowf"><button class="btn big grow" id="bCPR"></button>${segHTML('segQ', [['good', 'Good CPR'], ['poor', 'Poor CPR']], S.cprQ)}</div>
     <div class="note" id="cycleNote" style="margin:6px 0 10px"></div>
@@ -162,15 +281,22 @@ function buildLive() {
     <button class="btn red big" id="bShock" style="width:100%;margin-top:10px"></button>
     <div class="rowf" style="margin-top:10px"><button class="btn grow" id="bROSC">ROSC</button><button class="btn grow" id="bNIBP">NIBP now</button><button class="btn grow" id="bSil">Silence 2 min</button></div>
   </div>
-  <div class="card"><h3>Rhythm <span class="note">applies instantly</span></h3><div class="chips" id="rhChips">${
-    PC.RHYTHMS.map(r => `<button class="chip${r.arrest ? ' red' : ''}" data-rh="${r.key}">${esc(r.label)}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</button>`).join('')}</div></div>
+  <div class="card"><h3>⚡ Surprise <span class="note">instant complications</span></h3>
+    <button class="btn purple big" id="bSurp" style="width:100%">⚡ Random surprise</button>
+    <div id="surpActive"></div>
+    <details style="margin-top:10px"><summary class="note" style="cursor:pointer">Choose a specific complication</summary>
+      <div class="sheet" id="surpList" style="margin-top:8px">${SURPRISES.map(x => `<button class="chip purple" data-surp="${x.key}">${x.label}${x.sub ? `<small>${x.sub}</small>` : ''}</button>`).join('')}</div>
+    </details>
+  </div>
   <div class="card"><h3>Vitals <span class="note">staged until Apply</span></h3>
     ${VIT.map(x => `<div class="vit" data-k="${x.k}"><label>${x.l}</label><button data-d="-1" aria-label="${x.l} down">−</button><input inputmode="decimal" id="in_${x.k}"><button data-d="1" aria-label="${x.l} up">+</button><span class="cur" id="cur_${x.k}"></span></div>`).join('')}
     <div style="margin:10px 0 6px" class="note">Drift over</div>
     ${segHTML('segRamp', RAMPS, ramp)}
     <div class="rowf" style="margin-top:10px"><button class="btn pri big grow" id="bApply">Apply vitals</button><button class="btn" id="bRevert">Revert</button></div>
     <div class="rowf" style="margin-top:10px"><span class="note">Stage preset:</span><button class="btn" data-pre="norm">Normal for age</button><button class="btn" data-pre="hypox">Hypoxia</button><button class="btn" data-pre="shock">Hypotension</button></div>
-  </div>`;
+  </div>
+  <div class="card"><h3>All rhythms <span class="note">applies instantly</span></h3><div class="chips" id="rhChips">${
+    PC.RHYTHMS.map(r => `<button class="chip${r.arrest ? ' red' : ''}" data-rh="${r.key}">${esc(r.label)}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</button>`).join('')}</div></div>`;
   $('#bCPR').onclick = toggleCPR;
   $('#segQ').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.cprQ = b.dataset.v; addLog('CPR quality: ' + S.cprQ); send(); };
   $('#swSync').onclick = () => { S.sync = !S.sync; addLog('Sync ' + (S.sync ? 'ON' : 'OFF')); send(); };
@@ -180,6 +306,11 @@ function buildLive() {
   $('#bNIBP').onclick = () => { S.nibpAt = Date.now(); addLog('NIBP measurement'); send(); };
   $('#bSil').onclick = () => { S.silenceAt = Date.now(); send(); PC.toast('Alarms silenced for 2 min'); };
   $('#rhChips').onclick = e => { const b = e.target.closest('[data-rh]'); if (b) setRhythm(b.dataset.rh); };
+  $('#qaRh').onclick = e => { const b = e.target.closest('[data-q]'); if (b) quick(b.dataset.q); };
+  $('#qaEv').onclick = e => { const b = e.target.closest('[data-ev]'); if (b) logEvent(b.dataset.ev); };
+  $('#bSurp').onclick = randomSurprise;
+  $('#surpList').onclick = e => { const b = e.target.closest('[data-surp]'); if (b) surprise(b.dataset.surp); };
+  $('#surpActive').onclick = e => { const b = e.target.closest('[data-fix]'); if (b) fixSurprise(b.dataset.fix); };
   $$('#tabLive .vit').forEach(row => {
     const k = row.dataset.k, x = VIT.find(v => v.k === k), inp = row.querySelector('input');
     row.querySelectorAll('button').forEach(b => b.onclick = () => {
@@ -222,8 +353,12 @@ function renderLive() {
   $('#enNote').textContent = S.sync ? 'Markers show on each R wave' : '';
   $('#bShock').textContent = `⚡ ${S.sync ? 'Cardiovert' : 'Shock'} ${PC.joules(e.per, wt())} J`;
   $$('#rhChips .chip').forEach(c => c.classList.toggle('on', c.dataset.rh === PC.rhythmKey(S)));
+  $$('#qaRh .chip').forEach(c => c.classList.toggle('on', c.dataset.q === PC.rhythmKey(S)));
+  const act = Object.keys(active);
+  $('#surpActive').innerHTML = act.length ? `<div class="note" style="margin:10px 0 6px">Active, tap when the team fixes it:</div><div class="rowf">${
+    act.map(k => { const x = SURPRISES.find(s => s.key === k); return `<button class="btn" data-fix="${k}">✔ ${esc(x.fix)}</button>`; }).join('')}</div>` : '';
   $$('#segRamp button').forEach(x => x.classList.toggle('on', Number(x.dataset.v) === ramp));
-  const flags = [!S.leads && 'leads off', !S.probe && 'probe off', !S.co2On && 'CO₂ off', S.sync && 'SYNC', S.frozen && 'FROZEN', !S.alarms && 'alarms off'].filter(Boolean);
+  const flags = [S.noVent && 'no CO₂ (airway)', S.exam && 'exam mode', !S.leads && 'leads off', !S.probe && 'probe off', !S.co2On && 'CO₂ off', S.sync && 'SYNC', S.frozen && 'FROZEN', !S.alarms && 'alarms off'].filter(Boolean);
   $('#liveNow').innerHTML = `<span><b>${esc(PC.rhythmName(S))}</b></span>` +
     [['HR', S.v.hr], ['SpO₂', S.v.spo2], ['RR', S.v.rr], ['EtCO₂', S.v.etco2], ['BP', S.v.sbp + '/' + S.v.dbp]].map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('') +
     (S.cpr ? `<span><b style="color:var(--danger)">CPR ${S.cprQ}</b></span>` : '') + (flags.length ? `<span>${esc(flags.join(' · '))}</span>` : '');
@@ -288,7 +423,7 @@ function renderScen() {
     const c = e.target.closest('[data-tick]'); if (!c) return;
     const id = c.dataset.tick; sc.ticks[id] = c.checked ? Date.now() : 0;
     const [i, j] = id.split(':').map(Number);
-    if (c.checked) addLog('✓ ' + PC.fillDoses(s.stages[i].expect[j], w)); else save();
+    if (c.checked) addLog('✓ ' + PC.fillDoses(s.stages[i].expect[j], w), 'tick'); else save();
   };
 }
 function stageSummary(st) {
@@ -323,17 +458,12 @@ function buildTime() {
     else { T.scStart = Date.now(); T.scRun = true; addLog(T.scAcc ? 'Clock resumed' : 'Clock started'); }
     save(); renderTimers();
   };
-  $('#bCheck').onclick = () => { T.cycleStart = Date.now(); addLog('Rhythm/pulse check'); renderTimers(); };
-  $('#doseGrid').onclick = e => {
-    const b = e.target.closest('[data-dose]'); if (!b) return;
-    const d = PC.DOSES.find(x => x.key === b.dataset.dose);
-    if (d.key === 'adr') { T.adrAt = Date.now(); T.adr++; }
-    addLog(`💉 ${d.name} ${d.calc(wt())}`); PC.toast(d.name + ' logged'); renderTimers();
-  };
-  $('#bNote').onclick = () => { const v = $('#noteIn').value.trim(); if (v) { addLog('📝 ' + v); $('#noteIn').value = ''; } };
+  $('#bCheck').onclick = () => logEvent('check');
+  $('#doseGrid').onclick = e => { const b = e.target.closest('[data-dose]'); if (b) logDrug(b.dataset.dose); };
+  $('#bNote').onclick = () => { const v = $('#noteIn').value.trim(); if (v) { addLog('📝 ' + v, 'note'); $('#noteIn').value = ''; } };
   $('#noteIn').onkeydown = e => { if (e.key === 'Enter') $('#bNote').click(); };
   $('#bCopy').onclick = copyLog;
-  $('#bClear').onclick = () => { if (confirm('Clear the log and timers?')) { log = []; T = { scRun: false, scStart: 0, scAcc: 0, cycleStart: 0, adrAt: 0, shocks: 0, adr: 0 }; save(); renderLog(); renderTimers(); } };
+  $('#bClear').onclick = () => { if (confirm('Clear the log, timers and debrief?')) { log = []; ev = []; snap = null; T = NEW_T(); save(); renderLog(); renderTimers(); } };
 }
 function renderDoses() {
   const g = $('#doseGrid'); if (!g) return;
@@ -372,6 +502,8 @@ function copyLog() {
   const s = scen();
   const lines = ['PALS Companion: session log', new Date().toLocaleString(),
     s ? `Scenario: ${s.title} (${S.pt.age}, ${S.pt.wt} kg)` : `Patient: ${S.pt.age}, ${S.pt.wt} kg`, ''];
+  const D = computeDebrief();
+  if (D.m.length) { lines.push('Key times'); D.m.forEach(([k, v, , sub]) => lines.push(`  ${k}: ${v}${sub ? ' (' + sub + ')' : ''}`)); lines.push(''); }
   log.forEach(l => lines.push(`[${logRel(l.at)}] ${l.txt}`));
   if (s && sc.visited.length) {
     const sco = score(); lines.push('', `Checklist ${sco.done}/${sco.total}`);
@@ -379,6 +511,97 @@ function copyLog() {
   }
   const txt = lines.join('\n');
   (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => PC.toast('Log copied'), () => { prompt('Copy the log:', txt); });
+}
+
+/* ---------- debrief ---------- */
+const dur = ms => ms < 60000 ? Math.round(ms / 1000) + ' s' : PC.mmss(ms);
+const DEB_KINDS = new Set(['stage', 'rhythm', 'cpr', 'shock', 'drug', 'event', 'surprise', 'rosc', 'note']);
+function computeDebrief() {
+  const end = T.endAt || Date.now();
+  const snaps = ev.filter(e => e.type === 'snap');
+  const m = [];
+  const arrestAt = (snaps.find(x => !x.perf) || {}).at;
+  const shocks = ev.filter(e => e.type === 'shock' && !e.sync);
+  const adr = ev.filter(e => e.type === 'drug' && e.key === 'adr');
+  if (arrestAt) {
+    const cprAt = (snaps.find(x => x.at >= arrestAt && x.cpr) || {}).at;
+    const roscAt = (snaps.find(x => x.at > arrestAt && x.perf) || {}).at;
+    const shockableAt = (snaps.find(x => x.shockable) || {}).at;
+    // integrate arrest time, CPR time and hands-off pauses (after CPR first started)
+    let arrestMs = 0, cprMs = 0, offMs = 0, run = 0, longest = 0;
+    snaps.forEach((x, i) => {
+      const d = Math.max(0, (i + 1 < snaps.length ? snaps[i + 1].at : end) - x.at);
+      const off = !x.perf && !x.cpr && cprAt && x.at >= cprAt;
+      if (!x.perf) { arrestMs += d; if (x.cpr) cprMs += d; }
+      if (off) { offMs += d; run += d; } else if (x.perf || x.cpr) { longest = Math.max(longest, run); run = 0; }
+    });
+    longest = Math.max(longest, run);
+    const tCpr = cprAt != null ? cprAt - arrestAt : null;
+    m.push(['Time to CPR', tCpr == null ? 'not started' : dur(tCpr), tCpr == null ? 'r' : tCpr <= 10000 ? 'g' : tCpr <= 30000 ? 'a' : 'r', 'target ≤ 10 s']);
+    if (shockableAt) {
+      const fs = shocks.find(e => e.at >= shockableAt), t = fs ? fs.at - shockableAt : null;
+      m.push(['First shock', t == null ? 'none' : dur(t), t == null ? 'r' : t <= 120000 ? 'g' : t <= 180000 ? 'a' : 'r', 'from shockable rhythm']);
+    }
+    const fa = adr.find(e => e.at >= arrestAt), ta = fa ? fa.at - arrestAt : null;
+    m.push(['First adrenaline', ta == null ? 'not given' : dur(ta), ta == null ? (arrestMs > 180000 ? 'r' : '') : ta <= 300000 ? 'g' : ta <= 420000 ? 'a' : 'r', 'from arrest']);
+    if (adr.length > 1) {
+      const iv = adr.slice(1).map((e, i) => e.at - adr[i].at);
+      m.push(['Adrenaline intervals', iv.map(PC.mmss).join(', '), iv.every(x => x >= 170000 && x <= 310000) ? 'g' : 'a', 'target 3–5 min']);
+    }
+    const frac = arrestMs ? Math.round(cprMs / arrestMs * 100) : 0;
+    m.push(['CPR fraction', frac + ' %', frac >= 80 ? 'g' : frac >= 60 ? 'a' : 'r', 'target > 80 %']);
+    m.push(['Hands-off time', dur(offMs), longest <= 10000 ? 'g' : longest <= 20000 ? 'a' : 'r', 'longest pause ' + dur(longest)]);
+    m.push(['ROSC', roscAt ? dur(roscAt - arrestAt) : 'not achieved', roscAt ? 'g' : '', 'from arrest']);
+  }
+  if (shocks.length || ev.some(e => e.type === 'shock')) {
+    const all = ev.filter(e => e.type === 'shock');
+    m.push(['Shocks', String(all.length), '', all.map(e => e.J + ' J' + (e.sync ? ' sync' : '')).join(', ')]);
+  }
+  const drugs = ev.filter(e => e.type === 'drug');
+  if (drugs.length) m.push(['Drugs logged', String(drugs.length), '', [...new Set(drugs.map(e => (PC.DOSES.find(d => d.key === e.key) || {}).name))].join(', ')]);
+  const sco = score();
+  if (sco.total) { const pc = sco.done / sco.total; m.push(['Checklist', `${sco.done} / ${sco.total}`, pc >= 0.8 ? 'g' : pc >= 0.6 ? 'a' : 'r', Math.round(pc * 100) + ' %']); }
+  const start = T.startAt || (log[0] ? log[0].at : end);
+  if (log.length) m.unshift(['Session time', PC.mmss(end - start), '', T.endAt ? 'ended' : 'running']);
+  const tl = log.filter(l => DEB_KINDS.has(l.kind) || /^Scenario|^Stage/.test(l.txt)).map(l => [logRel(l.at), l.txt, l.kind]);
+  return { m, tl, arrest: !!arrestAt };
+}
+function buildDeb() {
+  $('#tabDeb').innerHTML = `
+  <div class="card"><h3>Debrief <span class="note" id="debSub"></span></h3>
+    <div id="debHead" style="margin-bottom:10px"></div>
+    <div class="rowf noprint"><button class="btn pri grow" id="bDebShow">Show on monitor</button><button class="btn grow" id="bDebHide">Hide from monitor</button></div>
+    <div class="rowf noprint" style="margin-top:8px"><button class="btn grow" id="bDebCopy">Copy summary</button><button class="btn grow" id="bDebPrint">Print / save PDF</button></div></div>
+  <div class="card"><h3>Key times</h3><div class="met" id="debMet"></div></div>
+  <div class="card" id="debChkCard"><h3>Checklist</h3><div id="debChk"></div></div>
+  <div class="card"><h3>Timeline</h3><ol class="tline" id="debTl"></ol></div>`;
+  $('#bDebShow').onclick = () => {
+    const D = computeDebrief(), s = scen();
+    S.debrief = { on: true, title: 'Debrief' + (s ? ' · ' + s.title : ''), m: D.m.map(x => [x[0], x[1], x[2], x[3]]), ev: D.tl.slice(-26).map(x => [x[0], x[1]]) };
+    send(); PC.toast('Debrief shown on the monitor');
+  };
+  $('#bDebHide').onclick = () => { S.debrief = Object.assign({}, S.debrief, { on: false }); send(); };
+  $('#bDebCopy').onclick = copyLog;
+  $('#bDebPrint').onclick = () => {
+    document.body.classList.add('print-deb');
+    const off = () => { document.body.classList.remove('print-deb'); window.removeEventListener('afterprint', off); };
+    window.addEventListener('afterprint', off);
+    window.print(); setTimeout(off, 1500);
+  };
+}
+function renderDeb() {
+  if (!$('#debMet')) return;
+  const D = computeDebrief(), s = scen();
+  $('#debSub').textContent = T.endAt ? 'scenario ended' : log.length ? 'live, updates as you go' : '';
+  $('#debHead').innerHTML = `<b style="font-size:17px">${esc(s ? s.title : 'Free session')}</b><div class="note">${esc(S.pt.age)} · ${esc(S.pt.wt)} kg · ${new Date(T.startAt || Date.now()).toLocaleString()} · PALS Companion ${esc(PC.VERSION)}</div>`;
+  $('#debMet').innerHTML = D.m.length ? D.m.map(([k, v, tone, sub]) => `<div class="${tone || ''}"><span>${esc(k)}</span><b>${esc(v)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`).join('')
+    : '<p class="note" style="margin:0">Run a scenario (or use the Live tab) and the debrief builds itself: time to CPR, first shock, adrenaline timing, CPR fraction, hands-off time and the full timeline.</p>';
+  if (!D.arrest && D.m.length) $('#debMet').insertAdjacentHTML('beforeend', '<p class="note" style="grid-column:1/-1;margin:4px 0 0">No cardiac arrest in this session, so arrest timings are not shown.</p>');
+  const chk = [];
+  if (s) sc.visited.forEach(i => (s.stages[i].expect || []).forEach((x, j) => chk.push(`<div class="chk"><span>${sc.ticks[i + ':' + j] ? '✅' : '❌'}</span><span>${esc(PC.fillDoses(x, s.pt.wt))} <span class="note">· stage ${i + 1}</span></span></div>`)));
+  $('#debChk').innerHTML = chk.join('');
+  $('#debChkCard').classList.toggle('hide', !chk.length);
+  $('#debTl').innerHTML = D.tl.length ? D.tl.map(([t, x, k]) => `<li class="k-${k}"><i>${t}</i>${esc(x)}</li>`).join('') : '<li class="note">No events yet.</li>';
 }
 
 /* ---------- setup tab ---------- */
@@ -411,7 +634,7 @@ function buildSetup() {
     <div class="tog"><span>Capnogram shape</span>${segHTML('segShape', [['normal', 'Normal'], ['obstructive', 'Shark-fin']], S.co2Shape)}</div>
     <div class="tog"><span>NIBP auto cycle</span>${segHTML('segAuto', [[0, 'Off'], [3, '3 min'], [5, '5 min'], [15, '15 min']], S.nibpAuto)}</div></div>
   <div class="card"><h3>Monitor screen</h3>
-    ${[['alarms', 'Alarms'], ['beep', 'Pulse beep'], ['frozen', 'Freeze screen (debrief)']].map(([k, l]) => `<div class="tog"><span>${l}</span><button class="sw" data-sw="${k}"></button></div>`).join('')}
+    ${[['exam', 'Exam mode (alarms say only "ALARM")'], ['cprBar', 'CPR feedback panel'], ['alarms', 'Alarms'], ['beep', 'Pulse beep'], ['frozen', 'Freeze screen (debrief)']].map(([k, l]) => `<div class="tog"><span>${l}</span><button class="sw" data-sw="${k}"></button></div>`).join('')}
     <div class="tog"><span>Monitor theme</span>${segHTML('segTheme', [['dark', 'Dark'], ['light', 'Light']], S.monTheme)}</div></div>
   <div class="card"><h3>Result card on the monitor</h3>
     <label class="fld">Template<select id="rvTpl"><option value="">Choose…</option>${Object.entries(TEMPLATES).map(([k, v]) => `<option value="${k}">${esc(v[0])}</option>`).join('')}</select></label>
@@ -420,8 +643,8 @@ function buildSetup() {
     <div class="rowf" style="margin-top:10px"><button class="btn pri grow" id="bRvShow">Show on monitor</button><button class="btn grow" id="bRvHide">Hide</button></div></div>
   <div class="card"><h3>About</h3>
     <p style="margin:0 0 8px">PALS Companion ${esc(PC.VERSION)} · created by Dr Vignesh N</p>
-    <p class="note" style="margin:0 0 10px">For training only. Not a medical device. The link uses public relays, so only simulated values are sent. Verify doses and energies against current AHA PALS / IAP guidance.</p>
-    <div class="rowf"><a class="btn" href="privacy.html" style="text-decoration:none">Privacy</a><button class="btn" id="bRole">Switch to monitor mode</button><button class="btn" id="bReset">Reset everything</button></div></div>`;
+    <p class="note" style="margin:0 0 10px">For training only. Not a medical device. The link uses public relays, so only simulated values are sent. Verify doses and energies against current AHA PALS / IAP guidance. Not affiliated with or endorsed by the American Heart Association. Not for reuse or redistribution without written permission.</p>
+    <div class="rowf"><a class="btn" href="about.html" style="text-decoration:none">About</a><a class="btn" href="privacy.html" style="text-decoration:none">Privacy</a><button class="btn" id="bRole">Switch to monitor mode</button><button class="btn" id="bReset">Reset everything</button></div></div>`;
   $('#bOpenMon').onclick = openLocalMonitor;
   $('#bRepair').onclick = () => { if (confirm('Disconnect from this monitor and pair a different code?')) showPair(); };
   $('#bPt').onclick = () => {
@@ -433,7 +656,7 @@ function buildSetup() {
     const sw = e.target.closest('[data-sw]');
     if (sw) {
       const k = sw.dataset.sw; S[k] = !S[k];
-      const names = { leads: 'ECG leads', probe: 'SpO₂ probe', co2On: 'CO₂ line', cuff: 'BP cuff', alarms: 'Alarms', beep: 'Pulse beep', frozen: 'Freeze' };
+      const names = { leads: 'ECG leads', probe: 'SpO₂ probe', co2On: 'CO₂ line', cuff: 'BP cuff', alarms: 'Alarms', beep: 'Pulse beep', frozen: 'Freeze', exam: 'Exam mode', cprBar: 'CPR feedback panel' };
       addLog(`${names[k]} ${S[k] ? (k === 'frozen' ? 'ON' : 'on') : (k === 'frozen' ? 'OFF' : 'off')}`);
       send(); return;
     }
@@ -516,6 +739,7 @@ function showTab(id) {
   if (id === 'tabScen') renderScen();
   if (id === 'tabTime') { renderDoses(); renderLog(); renderTimers(); }
   if (id === 'tabSetup') renderSetup();
+  if (id === 'tabDeb') renderDeb();
   if (id === 'tabLive') renderLive();
 }
 function openLocalMonitor() {
@@ -531,7 +755,7 @@ PC.Controller = {
     const mq = window.matchMedia && matchMedia('(prefers-color-scheme: light)');
     const theme = () => (document.documentElement.dataset.theme = mq && mq.matches ? 'light' : 'dark');
     theme(); mq && mq.addEventListener && mq.addEventListener('change', theme);
-    buildLive(); buildTime(); buildSetup();
+    buildLive(); buildTime(); buildDeb(); buildSetup();
     $('#cTabs').onclick = e => { const b = e.target.closest('[data-tab]'); if (b) { showTab(b.dataset.tab); window.scrollTo(0, 0); } };
     $('#cCode').onclick = () => { if (!code || confirm('Pair with a different monitor code?')) showPair(); };
     const go = () => { const c = PC.cleanCode($('#pairIn').value); if (c.length === 4) connect(c); else PC.toast('Enter the 4-character code'); };
@@ -543,13 +767,25 @@ PC.Controller = {
     PC._wantWake = true; PC.wake();
     const c = PC.cleanCode(initialCode || code);
     if (c.length === 4) connect(c); else showPair();
-    PC.Controller._debug = { get S() { return S; }, get log() { return log; }, connect, loadStage, setRhythm, doShock, toggleCPR };
+    PC.Controller._debug = { get S() { return S; }, get log() { return log; }, get ev() { return ev; }, connect, loadStage, setRhythm, doShock, toggleCPR, computeDebrief };
   },
 };
 
 /* ---------- boot / routing ---------- */
+const GATE = 'pals-disclaimer-ack-v1';
 function boot() {
   $$('.ver').forEach(e => (e.textContent = PC.VERSION));
+  if (!PC.store.get(GATE, null)) {          // disclaimer, acknowledged once per device
+    const mq = window.matchMedia && matchMedia('(prefers-color-scheme: light)');
+    document.documentElement.dataset.theme = mq && mq.matches ? 'light' : 'dark';
+    const g = $('#dGate'); g.classList.remove('hide');
+    $('#dgChk').onchange = e => ($('#dgGo').disabled = !e.target.checked);
+    $('#dgGo').onclick = () => { PC.store.set(GATE, { at: Date.now(), v: PC.VERSION }); g.classList.add('hide'); route(); };
+    return;
+  }
+  route();
+}
+function route() {
   const h = location.hash;
   let m = h.match(/^#monitor(?:=([A-Za-z0-9]+))?/i);
   const role = m ? 'mon' : /^#control/i.test(h) ? 'ctl' : PC.sess.get('pals-role', null);
@@ -568,8 +804,8 @@ function boot() {
     $('#chooser').classList.remove('hide');
     const mq = window.matchMedia && matchMedia('(prefers-color-scheme: light)');
     document.documentElement.dataset.theme = mq && mq.matches ? 'light' : 'dark';
-    $('#goMon').onclick = () => { $('#chooser').classList.add('hide'); location.hash = '#monitor'; boot(); };
-    $('#goCtl').onclick = () => { $('#chooser').classList.add('hide'); location.hash = '#control'; boot(); };
+    $('#goMon').onclick = () => { $('#chooser').classList.add('hide'); location.hash = '#monitor'; route(); };
+    $('#goCtl').onclick = () => { $('#chooser').classList.add('hide'); location.hash = '#control'; route(); };
   }
 }
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

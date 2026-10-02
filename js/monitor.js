@@ -12,13 +12,16 @@ let ctlSeenAt = 0;
 const VK = ['hr', 'spo2', 'rr', 'etco2', 'sbp', 'dbp', 'temp'];
 
 /* ---------- vitals ramp: the "set" values drift from → to over the ramp ---------- */
-let vFrom = { ...S.v }, vTo = { ...S.v }, rampStart = 0, rampDur = 0;
+// Each vital ramps on its own: a later change to one value does not restart another's drift.
+let vFrom = { ...S.v }, vTo = { ...S.v }, rampStart = {}, rampDur = {};
 const ease = u => u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
 const setV = (k, now) => {
-  const u = rampDur > 0 ? clamp((now - rampStart) / rampDur, 0, 1) : 1;
+  const d = rampDur[k] || 0, u = d > 0 ? clamp((now - (rampStart[k] || 0)) / d, 0, 1) : 1;
   return vFrom[k] + (vTo[k] - vFrom[k]) * ease(u);
 };
 const perf = () => PC.perfusing(S);
+// Breathing that starts from apnoea (e.g. ventilation after ROSC) begins at the new rate at once.
+const rrAt = t => vFrom.rr < 4 && vTo.rr >= 4 ? vTo.rr : setV('rr', t);
 
 /* ---------- waveform engine ---------- */
 const G = (d, mu, sd, a) => a * Math.exp(-((d - mu) * (d - mu)) / (2 * sd * sd));
@@ -31,7 +34,7 @@ const E = {
   shockT: -1e9, stunUntil: 0, graceUntil: 0,
   et: 38, sp: 98,  // lagged EtCO2 target and SpO2
   perfSince: 0, noPerfSince: 0, lastPerf: true,
-  cprT0: 0,
+  cprT0: 0, cprStopAt: 0,
 };
 
 function rhythmChanged(now) {
@@ -111,11 +114,14 @@ function schedule(now) {
   // breaths
   let guard = 0;
   while (E.nextBr < horizon && guard++ < 10) {
-    const rr = setV('rr', E.nextBr);
-    if (rr < 1) { E.nextBr = horizon; break; }
+    const rr = rrAt(E.nextBr);
+    // Below 4/min counts as apnoea; re-check soon. (A rate ramping up from 0 must not
+    // schedule a single minute-long breath that freezes the capnogram.)
+    if (rr < 4) { E.nextBr = Math.max(E.nextBr, now) + 500; break; }
     const T = 60000 / rr * (1 + (Math.random() - 0.5) * 0.05);
     const last = E.br[E.br.length - 1];
-    E.br.push({ t: E.nextBr, T, ti: Math.min(0.38 * T, 900), E: E.et * (1 + (Math.random() - 0.5) * 0.03), prevE: last ? last.E : 0 });
+    const co2 = S.noVent ? 0 : E.et * (1 + (Math.random() - 0.5) * 0.03);   // tube out/blocked: no CO2 returns
+    E.br.push({ t: E.nextBr, T, ti: Math.min(0.38 * T, 900), E: co2, prevE: last ? last.E : 0 });
     E.nextBr += T;
   }
   // tidy old items
@@ -334,11 +340,11 @@ function computeNumbers(now) {
     const lb = done[done.length - 1];
     if (lb && now - lb.t < Math.max(15000, lb.T * 2.5)) {
       o.co = Math.round(jit(lb.E, 0.4));
-      o.aw = Math.round(setV('rr', now));
+      o.aw = Math.round(rrAt(now));
     } else o.co = 0, o.aw = 0;
   }
   // RR (impedance, from the leads)
-  o.rr = S.leads ? Math.round(jit(setV('rr', now), 0.5)) : null;
+  o.rr = S.leads ? Math.round(jit(rrAt(now), 0.5)) : null;
   if (S.leads && S.cpr) o.rr = null;
   o.temp = setV('temp', now);
   o.L = L;
@@ -378,6 +384,8 @@ function evalAlarms(o, now) {
   if (!S.probe) add(1, 'SpO₂ PROBE OFF');
   if (now < N.failUntil) add(1, 'NIBP MEASUREMENT FAILED', 'tNB');
   a.sort((x, y) => y.p - x.p);
+  // Exam mode: physiological alarms never name the problem; technical ones (leads/probe) stay specific.
+  if (S.exam) a.forEach(x => { if (x.p >= 2) x.msg = x.p === 3 ? '⚠ ALARM' : '⚠ ALERT'; });
   return a;
 }
 
@@ -448,6 +456,7 @@ function render(now) {
   else { b.className = ''; b.textContent = ''; }
   els.mSil.textContent = !S.alarms ? '🔕 ALARMS OFF' : silenced ? '🔕 ' + PC.mmss(silenceUntil - Date.now()) : '';
   els.mClock.textContent = PC.clock();
+  renderCpr(now);
   const dot = els.mLink.firstChild;
   dot.className = 'dot ' + (Date.now() - ctlSeenAt < 12000 ? 'on' : got ? 'wait' : '');
   els.mLink.title = Date.now() - ctlSeenAt < 12000 ? 'Instructor connected' : 'Waiting for instructor';
@@ -456,6 +465,32 @@ function render(now) {
     const p = alarms[0].p, gap = p === 3 ? 5000 : p === 2 ? 10000 : 20000;
     if (Date.now() - lastAlarmSound > gap) { lastAlarmSound = Date.now(); alarmSound(p); }
   }
+}
+/* CPR feedback panel: rate against the 100–120 target, depth (from the instructor's quality
+   setting) and hands-off time once compressions stop during an arrest. */
+function renderCpr(now) {
+  const p = perf(), handsOff = !S.cpr && !p && E.cprStopAt > 0;
+  const show = S.cprBar && (S.cpr || handsOff);
+  els.mCpr.classList.toggle('hide', !show);
+  if (!show) return;
+  const rate = S.cpr ? Math.round(jit(S.cprQ === 'good' ? S.cprRate || 110 : 88, 2)) : 0;
+  const pct = r => clamp((r - 60) / 100 * 100, 0, 100);
+  const rc = !S.cpr ? '' : rate >= 100 && rate <= 120 ? 'good' : 'warn';
+  const off = handsOff ? Math.floor((now - E.cprStopAt) / 1000) : 0;
+  els.mCpr.innerHTML = `<span class="k">CPR</span>` +
+    `<span><span class="k">Rate</span> <b class="${rc}">${S.cpr ? rate : '--'}</b></span>` +
+    `<span class="bar"><u style="left:${pct(100)}%;width:${pct(120) - pct(100)}%"></u><i style="width:${S.cpr ? pct(rate) : 0}%"></i></span>` +
+    `<span><span class="k">Depth</span> <b class="${S.cpr ? (S.cprQ === 'good' ? 'good' : 'bad') : ''}">${S.cpr ? (S.cprQ === 'good' ? 'OK' : 'LOW') : '--'}</b></span>` +
+    `<span><span class="k">Hands-off</span> <b class="${off > 10 ? 'bad' : off > 5 ? 'warn' : ''}">${handsOff ? off + ' s' : '0 s'}</b></span>`;
+}
+function renderDebrief() {
+  const d = S.debrief || {};
+  els.mDeb.classList.toggle('hide', !d.on);
+  if (!d.on) return;
+  const esc = PC.esc;
+  els.mDeb.innerHTML = `<h3>${esc(d.title || 'Debrief')}</h3>` +
+    `<div class="mg">${(d.m || []).map(([k, v, tone, sub]) => `<div class="${esc(tone || '')}"><span>${esc(k)}</span><b>${esc(v)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</div>`).join('')}</div>` +
+    `<ol>${(d.ev || []).map(([t, x]) => `<li><i>${esc(t)}</i>${esc(x)}</li>`).join('')}</ol>`;
 }
 let flashMsg = '', flashUntil = 0;
 function flash(msg) { flashMsg = msg; flashUntil = performance.now() + 4000; }
@@ -470,6 +505,7 @@ function applyUI() {
   const rv = S.reveal || {};
   els.mReveal.classList.toggle('hide', !rv.on);
   if (rv.on) { els.mReveal.querySelector('h3').textContent = rv.title || ''; els.mReveal.querySelector('div').textContent = rv.text || ''; }
+  renderDebrief();
   if (themeChanged) requestAnimationFrame(() => rows.forEach(r => r.resize(true)));
 }
 
@@ -488,12 +524,18 @@ function applyState(st, meta = {}) {
   const prev = S; S = PC.mergeState(st);
   const now = performance.now();
   if (S.vt !== lastVt) {
-    for (const k of VK) vFrom[k] = first ? S.v[k] : setV(k, now);
-    vTo = { ...S.v }; rampStart = now; rampDur = first ? 0 : (S.ramp || 0); lastVt = S.vt;
+    for (const k of VK) {
+      if (!first && S.v[k] === vTo[k]) continue;           // unchanged: keep its current drift
+      vFrom[k] = first ? S.v[k] : setV(k, now);
+      vTo[k] = S.v[k]; rampStart[k] = now; rampDur[k] = first ? 0 : (S.ramp || 0);
+    }
+    lastVt = S.vt;
     if (first) { E.et = S.v.etco2; E.sp = S.v.spo2; }
   }
   if (first || prev.rhythm !== S.rhythm || prev.pulse !== S.pulse) rhythmChanged(now);
   if (S.cpr && !prev.cpr) E.cprT0 = now;
+  if (!S.cpr && prev.cpr) E.cprStopAt = now;
+  if (PC.perfusing(S)) E.cprStopAt = 0;
   // One-off events fire when their stamp changes. Not on the first state (a reloaded monitor must not
   // replay an old shock), and not when another instructor takes over with its own old stamps.
   if (!first && !newSender) {
@@ -539,7 +581,7 @@ let link = null;
 Mon.start = code => {
   PC.$('#mon').classList.remove('hide');
   ['mPt', 'mBanner', 'mSil', 'mLink', 'mClock', 'vHR', 'uHR', 'vSP', 'uSP', 'vCO', 'vAW', 'vRR', 'vTE', 'vNB', 'vMAP', 'nbState', 'nbTime', 'nbMode',
-    'limHR', 'limSP', 'limCO', 'limRR', 'tHR', 'tSP', 'tCO', 'tRR', 'tNB', 'mFrozen', 'mReveal', 'mHeart'].forEach(id => els[id] = document.getElementById(id));
+    'limHR', 'limSP', 'limCO', 'limRR', 'tHR', 'tSP', 'tCO', 'tRR', 'tNB', 'mFrozen', 'mReveal', 'mHeart', 'mCpr', 'mDeb'].forEach(id => els[id] = document.getElementById(id));
   rows = [
     new Row($('#rEcg'), '--ecg', 5000, ecgAt, -1.1, 1.7, { marks: syncMarks }),
     new Row($('#rPl'), '--pleth', 5000, plethAt, -0.1, 1.25),

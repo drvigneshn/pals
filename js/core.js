@@ -3,7 +3,7 @@
 (() => {
 'use strict';
 const PC = window.PC = {};
-PC.VERSION = 'v0.1.1';
+PC.VERSION = 'v0.2.0';
 
 /* ---------- small helpers ---------- */
 PC.$ = (s, r = document) => r.querySelector(s);
@@ -115,6 +115,10 @@ PC.defaultState = () => ({
   nibpAt: 0, nibpAuto: 0,         // auto interval in minutes (0 = manual)
   silenceAt: 0, alarms: true, beep: true,
   monTheme: 'dark', frozen: false,
+  exam: false,                    // exam mode: alarm banner says only "ALARM", never the rhythm name
+  noVent: false,                  // airway complication (tube out / blocked): no CO2 comes back
+  cprBar: true,                   // CPR feedback panel on the monitor
+  debrief: { on: false, title: '', m: [], ev: [] },
   pt: { group: 'child', age: '5 y', wt: 18, bed: 'Resus 1' },
   reveal: { on: false, title: '', text: '' },
   t: 0,
@@ -125,6 +129,7 @@ PC.mergeState = st => {
   o.v = Object.assign(PC.defaultState().v, (st && st.v) || {});
   o.pt = Object.assign(PC.defaultState().pt, (st && st.pt) || {});
   o.reveal = Object.assign(PC.defaultState().reveal, (st && st.reveal) || {});
+  o.debrief = Object.assign(PC.defaultState().debrief, (st && st.debrief) || {});
   return o;
 };
 

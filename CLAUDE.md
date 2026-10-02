@@ -19,14 +19,16 @@ Owner: Dr Vignesh N (paediatrician, no CS background): explain changes in plain 
 - `js/monitor.js` — the monitor engine (`PC.Monitor`).
 - `js/controller.js` — the instructor UI (`PC.Controller`) and `boot()` routing (chooser / `#monitor=CODE` / `#control=CODE`).
 - `lib/mqtt.min.js` (mqtt 5.16.0), `lib/qrcode.js` (qrcode-generator 1.4.4) — vendored so the app works offline.
-- `sw.js` (offline cache), `manifest.webmanifest`, `icon.svg`, `icon-192.png`, `icon-512.png`, `privacy.html`.
+- `sw.js` (offline cache), `manifest.webmanifest`, `icon.svg`, `icon-192.png`, `icon-512.png`, `privacy.html`, `about.html`
+  (About/Privacy load `js/core.js` only to print the version).
 - `test/` — local relay stand-in + Playwright checks (see Testing).
 
 ## Versioning (do this on every change)
 Bump in ALL places, keep in sync:
 1. `PC.VERSION` in `js/core.js` (shown on the chooser and in Setup → About)
 2. `CACHE` in `sw.js` (`'pals-vX.Y.Z'`) — this is what pushes updates to installed users; never skip it.
-Small change → patch; new feature → minor. Current: **v0.1.1**.
+Small change → patch; new feature → minor. Current: **v0.2.0**. The version shows on the landing footer, disclaimer gate, monitor footer,
+instructor footer, About and Privacy (all read `PC.VERSION`).
 
 ## Attribution on commits
 End commit messages with the Co-Authored-By line from the session's instructions. Never put a model identifier
@@ -51,9 +53,19 @@ in code, PRs or docs. Do NOT open a PR unless asked.
   Physiology: HR counted from QRS (compression rate during CPR); SpO₂ lag + NO PULSE/SEARCHING; EtCO₂ from CPR quality
   and ROSC surge; NIBP 17 s cycle. Alarms: high/medium/technical with age limits (`PC.limits`), top one in the banner,
   Web Audio tones; pulse beep pitch follows SpO₂. Audio starts on the "Start monitor" tap.
-- **Controller tabs:** Live (CPR/shock/sync/ROSC, rhythm chips, staged vitals + ramp), Scenario (stem, stages with
-  branches, cues, checklist), Timeline (timers, dose log, copyable log + score), Setup (pairing, patient, sensors,
-  monitor, result card, about). Controller state persists in `localStorage` key `pals-ctl-v1`.
+- **Controller tabs:** Live (quick actions: rhythm + team events; CPR/shock/sync/ROSC; ⚡ Surprise complications with
+  "fix" buttons; staged vitals + ramp; all rhythms), Scenario (stem, stages with branches, cues, checklist), Timeline
+  (timers, dose log, copyable log), Debrief (key times, checklist, timeline; show on monitor / copy / print-PDF),
+  Setup (pairing, patient, sensors, monitor incl. exam mode + CPR panel, result card, about).
+  Controller state persists in `localStorage` key `pals-ctl-v1` (incl. `ev` structured events, `snap`, `active`).
+- **Debrief:** `track()` (called by `send()`) records a `snap` event whenever perfusion / CPR / shockable changes;
+  `computeDebrief()` integrates them: time to CPR, first shock (from shockable onset), first adrenaline + intervals,
+  CPR fraction, hands-off (after first CPR) + longest pause, time to ROSC, checklist score. Log entries carry `kind`.
+- **Monitor extras:** `exam` (high/medium alarms read "⚠ ALARM"/"⚠ ALERT"; technical alarms stay specific),
+  `noVent` (breaths return no CO₂), CPR panel (`cprBar`: rate vs 100–120, depth from `cprQ`, hands-off seconds),
+  `debrief` overlay. Each vital ramps independently (a later change doesn't restart another's drift); RR rising from
+  apnoea starts at the target rate.
+- **Disclaimer gate** `#dGate`: once per device, `localStorage pals-disclaimer-ack-v1`. Never gate per session.
 
 ## Constraints (keep these)
 - No accounts, no backend of our own, no analytics. Must work offline once loaded.
@@ -68,6 +80,7 @@ Browser checks (Playwright + pre-installed Chromium):
 ```bash
 cd test && npm install && node servers.js &   # MQTT-over-WS broker :8888 + static app server :8080
 node sync.js     # two isolated browsers paired via relay: VF alarm, CPR HR/EtCO2, shock, ROSC, vitals, scenario, leads off
+node v2.js       # gate, landing/footer/version, quick actions, surprise (tube), exam mode, CPR panel, debrief
 node robust.js   # clock skew between devices, phone wake-up, two instructor screens, Apply + auto NIBP
 node local.js    # one device, pop-up monitor via BroadcastChannel: NIBP, alarms, themes, reload doesn't replay shock
 node icons.js    # re-render icon PNGs from icon.svg
@@ -82,6 +95,6 @@ Screenshots land in `test/shots/` (git-ignored).
 - [ ] Android: PWABuilder → TWA, then add `.well-known/assetlinks.json`.
 
 ## Ideas the owner may ask for next
-Defibrillator skin (energy/charge/shock, CPR-quality bar), NICU skin (pre/post-ductal SpO₂), teaching mode with
-labelled numbers, one-thumb quick-dial, examiner scoresheet export (PDF), scenario builder, 12-lead ECG image reveal,
+Defibrillator skin (energy/charge/shock), NICU skin (pre/post-ductal SpO₂), teaching mode with
+labelled numbers, scenario builder, team-side dose calculator scored in the debrief (link with Code Blue Companion), 12-lead ECG image reveal,
 custom KKCTH scenarios, freeze + replay last 2 min for debrief.

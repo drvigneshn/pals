@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About · PALS Companion</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#0b1016;--card:#131b24;--line:#263241;--txt:#e6edf3;--mut:#8a9aab;--acc:#14b8a6;--warn:#f59e0b;color-scheme:dark}
+@media (prefers-color-scheme: light){:root{--bg:#f3f6f9;--card:#fff;--line:#d6dee7;--txt:#0f1720;--mut:#5b6b7c;--acc:#0d9488;color-scheme:light}}
+body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:24px 16px 8px}
+h1{font-size:28px;margin:0 0 2px}h2{font-size:18px;margin:26px 0 6px}
+.mut{color:var(--mut)}a{color:var(--acc)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:12px 0}
+.disc{border-left:4px solid var(--warn)}
+ul,ol{padding-left:22px}li{margin:5px 0}
+.legal{text-align:center;color:var(--mut);font-size:12px;line-height:1.7;padding:18px 16px 28px}
+.legal a{color:inherit}
+</style>
+</head>
+<body>
+<main>
+<h1>About PALS Companion</h1>
+<p class="mut">Version <span class="ver"></span> · created by Dr Vignesh N, paediatrician</p>
+
+<p>PALS Companion is a two-screen simulation tool for paediatric resuscitation teaching. A laptop, tablet or projector shows a realistic <b>simulated bedside monitor</b>; the instructor runs the case live from a <b>phone</b>. It is built for PALS-style courses, mock codes, simulation labs, and residency and nursing teaching.</p>
+
+<h2>How to use it</h2>
+<ol>
+  <li>On the laptop/projector, open <a href="./">pals.pediaos.com</a> and choose <b>Monitor screen</b>.</li>
+  <li>Scan the QR code with your phone (or choose <b>Instructor controls</b> and type the 4-letter code).</li>
+  <li>Tap <b>Start monitor</b> on the laptop to enable sound.</li>
+  <li>Pick a scenario on the phone, read the stem, press <b>Start</b>, and move through the stages.</li>
+  <li>Use <b>Live</b> for instant changes and <b>⚡ Surprise</b> complications; open <b>Debrief</b> at the end.</li>
+</ol>
+
+<h2>Features</h2>
+<ul>
+  <li>ECG, pleth, capnography and respiration waveforms; HR, SpO₂, EtCO₂, RR, NIBP, temperature; age-based alarms and sound.</li>
+  <li>Rhythms: sinus, SVT, 1st/2nd/3rd-degree AV block, VT with and without pulse, torsades, coarse/fine VF, asystole, PEA.</li>
+  <li>Physiology that teaches: HR counts compressions during CPR, EtCO₂ follows CPR quality and rises on ROSC, PEA gives no rhythm alarm, SpO₂ lags and loses its signal without a pulse.</li>
+  <li>12 staged scenarios with instructor-only cues, weight-based doses and expected-action checklists.</li>
+  <li>Quick actions, team-event logging, ⚡ Surprise complications, exam mode, CPR feedback panel.</li>
+  <li>Automated debrief: time to CPR, first shock, adrenaline timing, CPR fraction, hands-off time, timeline; show on the monitor, copy, or print/save as PDF.</li>
+  <li>No accounts or installation; works offline once opened.</li>
+</ul>
+
+<div class="card disc">
+  <h2 style="margin-top:0">⚠️ Disclaimer</h2>
+  <ul>
+    <li><b>For education and simulation training only.</b> PALS Companion is not a medical device and must not be used to monitor, diagnose or treat real patients.</li>
+    <li>All waveforms and values are simulated and may not reflect real patient or monitor behaviour.</li>
+    <li>Drug doses, energies and scenario content are teaching aids only. Verify them against current AHA PALS / IAP guidance and your local protocols.</li>
+    <li>Do not enter real patient names or identifiers. Devices communicate through public relays (see <a href="privacy.html">Privacy</a>).</li>
+    <li>"PALS" (Pediatric Advanced Life Support) is a programme of the American Heart Association. PALS Companion is independent and is not affiliated with, sponsored by or endorsed by the AHA.</li>
+    <li>Provided "as is", without warranty of any kind. The author accepts no liability for any loss or harm arising from its use.</li>
+  </ul>
+</div>
+
+<h2>Copyright</h2>
+<p>© 2026 Dr Vignesh N. All rights reserved. Not for reuse or redistribution without written permission.</p>
+
+<h2>Contact</h2>
+<p>Dr Vignesh N · <a href="mailto:n.vignesh.1996@gmail.com">n.vignesh.1996@gmail.com</a></p>
+<p><a href="./">← Back to PALS Companion</a></p>
+</main>
+<footer class="legal">PALS Companion <span class="ver"></span> · created by Dr Vignesh N<br>Not for reuse or redistribution without written permission. · <a href="about.html">About</a> · <a href="privacy.html">Privacy</a></footer>
+<script src="js/core.js"></script>
+<script>document.querySelectorAll('.ver').forEach(e => e.textContent = PC.VERSION);</script>
+</body>
+</html>

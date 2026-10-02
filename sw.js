@@ -1,8 +1,8 @@
 /* PALS Companion service worker — offline cache.
    Bump CACHE on every release: that is what pushes the update to installed users. */
-const CACHE = 'pals-v0.1.1';
+const CACHE = 'pals-v0.2.0';
 const ASSETS = ['./', 'index.html', 'privacy.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
-  'lib/mqtt.min.js', 'lib/qrcode.js', 'js/core.js', 'js/scenarios.js', 'js/monitor.js', 'js/controller.js'];
+  'about.html', 'lib/mqtt.min.js', 'lib/qrcode.js', 'js/core.js', 'js/scenarios.js', 'js/monitor.js', 'js/controller.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
