@@ -26,7 +26,7 @@ Owner: Dr Vignesh N (paediatrician, no CS background): explain changes in plain 
 Bump in ALL places, keep in sync:
 1. `PC.VERSION` in `js/core.js` (shown on the chooser and in Setup → About)
 2. `CACHE` in `sw.js` (`'pals-vX.Y.Z'`) — this is what pushes updates to installed users; never skip it.
-Small change → patch; new feature → minor. Current: **v0.1.0**.
+Small change → patch; new feature → minor. Current: **v0.1.1**.
 
 ## Attribution on commits
 End commit messages with the Co-Authored-By line from the session's instructions. Never put a model identifier
@@ -68,6 +68,7 @@ Browser checks (Playwright + pre-installed Chromium):
 ```bash
 cd test && npm install && node servers.js &   # MQTT-over-WS broker :8888 + static app server :8080
 node sync.js     # two isolated browsers paired via relay: VF alarm, CPR HR/EtCO2, shock, ROSC, vitals, scenario, leads off
+node robust.js   # clock skew between devices, phone wake-up, two instructor screens, Apply + auto NIBP
 node local.js    # one device, pop-up monitor via BroadcastChannel: NIBP, alarms, themes, reload doesn't replay shock
 node icons.js    # re-render icon PNGs from icon.svg
 ```

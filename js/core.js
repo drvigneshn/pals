@@ -3,7 +3,7 @@
 (() => {
 'use strict';
 const PC = window.PC = {};
-PC.VERSION = 'v0.1.0';
+PC.VERSION = 'v0.1.1';
 
 /* ---------- small helpers ---------- */
 PC.$ = (s, r = document) => r.querySelector(s);
@@ -129,7 +129,8 @@ PC.mergeState = st => {
 };
 
 /* ---------- Link: pairs one instructor with one or more monitors ----------
-   Three transports run side by side; duplicates are dropped by the state's `t`.
+   Transports run side by side. The monitor orders states per sender (instructor link id + its `t`),
+   so device clocks never have to agree.
    1. BroadcastChannel – two windows on the same device (works offline).
    2. MQTT over secure WebSocket through public brokers – different devices.
       The state topic is retained so a monitor that joins late gets it at once.
@@ -156,25 +157,38 @@ PC.Link = class {
     if (window.mqtt) for (const url of PC.brokers()) {
       let c;
       try {
-        c = mqtt.connect(url, { clientId: 'pals_' + this.role[0] + '_' + PC.rid(10), keepalive: 30,
-          reconnectPeriod: 4000, connectTimeout: 10000, clean: true });
+        c = mqtt.connect(url, { clientId: 'pals_' + this.role[0] + '_' + PC.rid(10), keepalive: 10,
+          reconnectPeriod: 3000, connectTimeout: 8000, clean: true });
       } catch { continue; }
       c.on('connect', () => {
         c.subscribe([this.base + '/state', this.base + '/hb/#']);
         if (this.last && this.role === 'ctl') c.publish(this.base + '/state', this.last, { retain: true });
         this._status();
       });
-      c.on('message', (topic, buf) => { try { this._in(JSON.parse(buf.toString()), 'relay'); } catch {} });
+      c.on('message', (topic, buf, pkt) => { try { this._in(JSON.parse(buf.toString()), 'relay', !!(pkt && pkt.retain)); } catch {} });
       ['close', 'offline', 'error', 'reconnect'].forEach(ev => c.on(ev, () => this._status()));
       this.clients.push(c);
     }
     this._status();
+    // A phone that slept or switched apps can hold a dead socket that still looks "connected".
+    // When the page comes back, drop and re-open every relay connection (the connect handler resends state).
+    let hiddenAt = 0;
+    this._vis = () => {
+      if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+      if (hiddenAt && Date.now() - hiddenAt > 2000) this.revive();
+      hiddenAt = 0;
+    };
+    this._online = () => this.revive();
+    document.addEventListener('visibilitychange', this._vis);
+    window.addEventListener('online', this._online);
+    window.addEventListener('pageshow', this._online);
   }
+  revive() { for (const c of this.clients) try { c.reconnect(); } catch {} this._status(); }
   relaysUp() { return this.clients.filter(c => c.connected).length; }
   _status() { this.on.status && this.on.status({ relays: this.relaysUp(), of: this.clients.length, local: !!this.bc }); }
-  _in(msg, via) {
+  _in(msg, via, retained) {
     if (!msg || msg.from === this.id) return;
-    if (msg.k === 'state' && this.on.state) this.on.state(msg.st, via);
+    if (msg.k === 'state' && this.on.state) this.on.state(msg.st, { from: msg.from, via, retained: !!retained });
     if (msg.k === 'hb' && this.on.hb) this.on.hb(msg, via);
   }
   _pub(topic, obj, retain) {
@@ -183,9 +197,19 @@ PC.Link = class {
     for (const c of this.clients) if (c.connected) c.publish(topic, s, { retain: !!retain, qos: 0 });
     return s;
   }
-  sendState(st) { this.last = this._pub(this.base + '/state', { k: 'state', from: this.id, st }, true); }
+  // State is published even while a relay is reconnecting: mqtt.js queues it and sends it on reconnect.
+  sendState(st) {
+    const obj = { k: 'state', from: this.id, st }, s = JSON.stringify(obj);
+    try { this.bc && this.bc.postMessage(obj); } catch {}
+    for (const c of this.clients) try { c.publish(this.base + '/state', s, { retain: true, qos: 0 }); } catch {}
+    this.last = s;
+  }
   heartbeat(extra) { this._pub(this.base + '/hb/' + this.role, Object.assign({ k: 'hb', role: this.role, from: this.id, at: Date.now() }, extra || {})); }
-  stop() { try { this.bc && this.bc.close(); } catch {} for (const c of this.clients) try { c.end(true); } catch {} this.clients = []; }
+  stop() {
+    document.removeEventListener('visibilitychange', this._vis);
+    window.removeEventListener('online', this._online); window.removeEventListener('pageshow', this._online);
+    try { this.bc && this.bc.close(); } catch {}
+    for (const c of this.clients) try { c.end(true); } catch {} this.clients = []; }
 };
 
 /* Keep the screen awake while the app is open (where supported). */

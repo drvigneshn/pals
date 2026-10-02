@@ -16,7 +16,7 @@ let T = Object.assign({ scRun: false, scStart: 0, scAcc: 0, cycleStart: 0, adrAt
 let sc = Object.assign({ id: null, stage: -1, ticks: {}, visited: [], ended: false }, saved.sc);
 let code = saved.code || '';
 let tab = saved.tab || 'tabLive';
-let link = null, monSeenAt = 0, linkStat = { relays: 0, of: 0, local: false };
+let link = null, monSeenAt = 0, otherCtl = false, linkStat = { relays: 0, of: 0, local: false };
 let scList = !sc.id;
 
 const save = () => PC.store.set(KEY, { S, ramp, energyKey, log, T, sc, code, tab });
@@ -25,6 +25,7 @@ const scen = () => PC.SCENARIOS.find(s => s.id === sc.id);
 
 function send() {
   S.t = Math.max(Date.now(), (S.t || 0) + 1);
+  otherCtl = false;
   if (link) link.sendState(S);
   save(); renderLive(); renderSetup(false);
 }
@@ -52,11 +53,21 @@ const VIT = [
 const RAMPS = [[0, 'Now'], [10000, '10 s'], [30000, '30 s'], [60000, '1 min'], [120000, '2 min']];
 const fmtV = (k, v) => k === 'temp' ? Number(v).toFixed(1) : Math.round(v);
 
+let nibpTimer = 0;
 function applyVitals() {
-  const ch = VIT.filter(x => Number(staged[x.k]) !== Number(S.v[x.k])).map(x => `${x.l} ${fmtV(x.k, staged[x.k])}`);
+  // pick up a number still being typed (some phones fire "change" only on blur)
+  for (const x of VIT) { const inp = $('#in_' + x.k), n = inp ? parseFloat(inp.value) : NaN; if (!isNaN(n)) staged[x.k] = clamp(n, x.min, x.max); }
+  const changed = VIT.filter(x => Number(staged[x.k]) !== Number(S.v[x.k]));
+  const bpChanged = changed.some(x => x.k === 'sbp' || x.k === 'dbp');
   S.v = { ...staged }; S.vt = Date.now(); S.ramp = ramp;
-  if (ch.length) addLog('Vitals → ' + ch.join(', ') + (ramp ? ' over ' + RAMPS.find(r => r[0] === ramp)[1] : ''));
+  if (changed.length) addLog('Vitals → ' + changed.map(x => `${x.l} ${fmtV(x.k, staged[x.k])}`).join(', ') + (ramp ? ' over ' + RAMPS.find(r => r[0] === ramp)[1] : ''));
   send();
+  // The monitor's BP only changes when the cuff cycles, so start a measurement timed to finish
+  // as the new BP is reached (a cycle takes ~17 s).
+  if (bpChanged && S.cuff) {
+    clearTimeout(nibpTimer);
+    nibpTimer = setTimeout(() => { S.nibpAt = Date.now(); addLog('NIBP measurement (BP changed)'); send(); }, Math.max(0, ramp - 15000));
+  }
 }
 function setRhythm(key) {
   const r = PC.RHYTHMS.find(x => x.key === key); if (!r) return;
@@ -196,6 +207,8 @@ function renderVitals() {
     inp.classList.toggle('changed', Number(staged[x.k]) !== Number(S.v[x.k]));
     $('#cur_' + x.k).textContent = fmtV(x.k, S.v[x.k]);
   }
+  const n = VIT.filter(x => Number(staged[x.k]) !== Number(S.v[x.k])).length, b = $('#bApply');
+  if (b) { b.textContent = n ? `Apply ${n} change${n > 1 ? 's' : ''} ▶` : 'Apply vitals'; b.className = 'btn big grow ' + (n ? 'warn' : 'pri'); }
 }
 function renderLive() {
   if (!$('#bCPR')) return;
@@ -451,11 +464,12 @@ function renderSetup(full) {
 function renderStatus() {
   const on = Date.now() - monSeenAt < 12000;
   const pill = $('#cStat');
-  pill.innerHTML = `<span class="dot ${on ? 'on' : code ? 'wait' : ''}"></span><span>${!code ? 'Not paired' : on ? 'Monitor online' : 'Waiting for monitor'}</span>`;
+  const lbl = !code ? 'Not paired' : !on ? 'Waiting for monitor' : otherCtl ? 'Another device in control' : 'Monitor online';
+  pill.innerHTML = `<span class="dot ${on && !otherCtl ? 'on' : code ? 'wait' : ''}"></span><span>${lbl}</span>`;
   $('#cCode').textContent = code || '----';
   const txt = `Relay ${linkStat.relays}/${linkStat.of}${linkStat.local ? ' · same-device ✓' : ''}`;
   const a = $('#suLink'); if (a) a.textContent = txt;
-  const b = $('#linkNote'); if (b) b.textContent = on ? '' : code ? 'monitor not seen yet' : '';
+  const b = $('#linkNote'); if (b) b.textContent = !code ? '' : !on ? 'monitor not seen yet' : otherCtl ? 'another device is in control; any change here takes over' : '';
 }
 function connect(c) {
   if (link) link.stop();
@@ -467,7 +481,11 @@ function connect(c) {
       const fresh = Date.now() - monSeenAt > 12000;
       monSeenAt = Date.now(); renderStatus();
       if (fresh) PC.toast('Monitor connected');
-      if ((m.gotT || 0) < (S.t || 0)) link.sendState(S);   // monitor is behind: resend
+      // Resend if the monitor has nothing yet, or missed one of our updates. If another instructor
+      // device took over, don't fight it: show a notice; our next action takes control back.
+      otherCtl = !!m.gotFrom && m.gotFrom !== link.id;
+      if (!m.gotFrom || (!otherCtl && (m.gotT || 0) < (S.t || 0))) link.sendState(S);
+      renderStatus();
     },
   });
   link.start();

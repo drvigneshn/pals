@@ -474,10 +474,17 @@ function applyUI() {
 }
 
 /* ---------- receiving state ---------- */
-function applyState(st) {
-  if (!st || typeof st.t !== 'number' || st.t <= lastT) return;
-  if (Date.now() - st.t > 3 * 3600e3) return;          // ignore stale retained messages
-  const first = !got; got = true; lastT = st.t;
+/* Ordering never compares the phone's clock with this device's clock:
+   - a retained relay copy is only used to start up (before any live state arrives);
+   - from the same instructor, a state is applied only if its `t` is newer;
+   - a different instructor (another phone, or the page reloaded) takes over at once. */
+let lastFrom = '';
+function applyState(st, meta = {}) {
+  if (!st || typeof st.t !== 'number') return;
+  if (meta.retained && (got || Date.now() - st.t > 3 * 3600e3)) return;   // stale or startup-only copy
+  const newSender = !!meta.from && meta.from !== lastFrom;
+  if (!newSender && st.t <= lastT) return;                                // duplicate or out of order
+  const first = !got; got = true; lastT = st.t; if (meta.from) lastFrom = meta.from;
   const prev = S; S = PC.mergeState(st);
   const now = performance.now();
   if (S.vt !== lastVt) {
@@ -487,9 +494,9 @@ function applyState(st) {
   }
   if (first || prev.rhythm !== S.rhythm || prev.pulse !== S.pulse) rhythmChanged(now);
   if (S.cpr && !prev.cpr) E.cprT0 = now;
-  // One-off events fire when their stamp changes. Not on the first state, so a reloaded
-  // monitor does not replay an old shock. Device clocks are never compared.
-  if (!first) {
+  // One-off events fire when their stamp changes. Not on the first state (a reloaded monitor must not
+  // replay an old shock), and not when another instructor takes over with its own old stamps.
+  if (!first && !newSender) {
     if (S.shockAt && S.shockAt !== prev.shockAt) shock(now);
     if (S.nibpAt && S.nibpAt !== prev.nibpAt) nibpStart(now);
     if (S.nibpAuto !== prev.nibpAuto) N.lastAuto = now;
@@ -511,7 +518,7 @@ function frame() {
   if (S.cpr) etT = p ? Math.max(setV('etco2', now), 42) : (S.cprQ === 'good' ? 18 : 8);
   else etT = p ? setV('etco2', now) : 3;
   E.et += (etT - E.et) * (1 - Math.exp(-dt / 2500));
-  if (p) E.sp += (setV('spo2', now) - E.sp) * (1 - Math.exp(-dt / 6000));
+  if (p) E.sp += (setV('spo2', now) - E.sp) * (1 - Math.exp(-dt / 3500));
   schedule(now);
   if (!S.frozen) {
     for (const r of rows) r.draw(now);
@@ -556,11 +563,11 @@ Mon.start = code => {
   document.addEventListener('pointerdown', audioInit, { once: false });
 
   link = new PC.Link(code, 'mon', {
-    state: st => applyState(st),
+    state: (st, meta) => applyState(st, meta),
     hb: m => { if (m.role === 'ctl') ctlSeenAt = Date.now(); },
   });
   link.start();
-  const hb = () => link.heartbeat({ gotT: lastT });
+  const hb = () => link.heartbeat({ gotT: lastT, gotFrom: lastFrom });
   hb(); setInterval(hb, 4000);
   applyUI();
   E.next = performance.now() + 200; E.nextBr = E.next;
