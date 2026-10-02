@@ -530,7 +530,14 @@ function applyState(st, meta = {}) {
       vTo[k] = S.v[k]; rampStart[k] = now; rampDur[k] = first ? 0 : (S.ramp || 0);
     }
     lastVt = S.vt;
-    if (first) { E.et = S.v.etco2; E.sp = S.v.spo2; }
+    if (first) {
+      E.et = S.v.etco2; E.sp = S.v.spo2;
+      // Start with a BP already on screen (as if just measured) instead of ---/---.
+      if (PC.perfusing(S) && S.cuff && S.v.sbp > 0) {
+        N.sys = Math.round(S.v.sbp); N.dia = Math.min(Math.round(S.v.dbp), N.sys - 4);
+        N.map = Math.round(N.dia + (N.sys - N.dia) / 3); N.at = PC.clock().slice(0, 5); N.state = 'done';
+      }
+    }
   }
   if (first || prev.rhythm !== S.rhythm || prev.pulse !== S.pulse) rhythmChanged(now);
   if (S.cpr && !prev.cpr) E.cprT0 = now;
@@ -602,6 +609,8 @@ Mon.start = code => {
   const ov = $('#mStart'); ov.classList.remove('hide');
   $('#mGo').onclick = () => { ov.classList.add('hide'); audioInit(); PC._wantWake = true; PC.wake(); try { document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {}); } catch {} };
   $('#mCodeBtn').onclick = () => { $('#mGo').textContent = 'Close'; ov.classList.remove('hide'); };
+  $('#mExit').onclick = () => { if (confirm('Close the monitor and go back to the start screen?')) PC.leave(); };
+  $('#mBack').onclick = () => PC.leave();
   document.addEventListener('pointerdown', audioInit, { once: false });
 
   link = new PC.Link(code, 'mon', {

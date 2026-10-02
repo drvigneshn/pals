@@ -40,6 +40,27 @@ button{cursor:pointer}
 #chooser{display:flex;flex-direction:column;align-items:center;padding:28px 16px 20px;gap:16px;min-height:100vh}
 #chooser h1{margin:0;font-size:30px;letter-spacing:.3px;text-align:center}
 #chooser .tag{color:var(--mut);margin:-8px 0 4px;text-align:center;max-width:560px}
+.brand{text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px}
+.brand .by{font-size:15px}
+.brand .mentors{font-size:13px;color:var(--mut);max-width:560px;line-height:1.5}
+.pick{width:min(640px,100%)}
+.pick h2{font-size:20px;margin:0 0 4px;text-align:center}
+.roles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
+.role{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:20px 12px 18px;border-radius:16px;border:2px solid var(--line);background:var(--card2)}
+.role:hover,.role.rec{border-color:var(--acc)}
+.role .ic{font-size:44px;line-height:1}
+.role b{font-size:20px}
+.role span{font-size:13px;color:var(--mut);line-height:1.4}
+.role em{position:absolute;top:-11px;left:50%;transform:translateX(-50%);white-space:nowrap;font-style:normal;font-size:11px;font-weight:700;background:var(--acc);color:#fff;padding:2px 9px;border-radius:999px}
+.flow{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--mut);margin:4px 0 12px}
+.flow b{color:var(--txt)}
+.step{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.step:last-of-type{border-bottom:0}
+.step .sn{flex:0 0 28px;height:28px;border-radius:50%;background:var(--acc);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+.step .sb{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+.step .sb > b{font-size:16px}
+#mExit{background:none;border:1px solid var(--m-line);color:var(--m-mut);border-radius:6px;padding:0 8px;font:inherit;line-height:1.6;cursor:pointer}
+#mExit:hover{color:var(--m-txt);border-color:var(--m-mut)}
 .land{width:min(640px,100%);display:flex;flex-direction:column;gap:14px}
 .land h2{font-size:17px;margin:0 0 8px}
 .land p{margin:0 0 8px}
@@ -218,7 +239,7 @@ button{cursor:pointer}
 .tline i{font-style:normal;font-family:ui-monospace,monospace;color:var(--acc);margin-right:6px}
 .qa{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 .qa .chip{padding:12px 4px;min-width:0;font-size:13px}
-.qa.ev{grid-template-columns:repeat(auto-fill,minmax(98px,1fr))}
+.qa.ev{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}
 .sheet{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
 .chip.purple{border-color:#a855f7}
 .chip.purple.on,.btn.purple{background:#7e22ce;border-color:#7e22ce;color:#fff}
@@ -237,11 +258,24 @@ button{cursor:pointer}
 
 <!-- ========== Role chooser ========== -->
 <section id="chooser" class="view hide">
-  <svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0b1016"/><polyline points="6,36 20,36 25,26 30,46 36,14 41,36 58,36" fill="none" stroke="#3dff72" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/></svg>
-  <h1>PALS Companion</h1>
-  <p class="tag">A two-screen simulation room for paediatric resuscitation teaching. The team watches a realistic monitor; the instructor runs the case from a phone.</p>
-  <button class="bigbtn" id="goMon"><span class="ic">📺</span><div><b>Monitor screen</b><span>Laptop, tablet or projector that the team looks at</span></div></button>
-  <button class="bigbtn" id="goCtl"><span class="ic">🎛️</span><div><b>Instructor controls</b><span>Your phone: scenarios, rhythm, vitals, CPR, shocks, debrief</span></div></button>
+  <header class="brand">
+    <svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0b1016"/><polyline points="6,36 20,36 25,26 30,46 36,14 41,36 58,36" fill="none" stroke="#3dff72" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/></svg>
+    <h1>PALS Companion</h1>
+    <p class="tag">Paediatric resuscitation simulator for teaching</p>
+    <div class="by">Created by <b>Dr Vignesh N</b></div>
+    <div class="mentors">Mentors: <b>Dr Janani Sankar</b>, Medical Director, KKCTH · <b>Dr Radhika Raman</b>, Senior Consultant, KKCTH</div>
+  </header>
+
+  <div class="card pick">
+    <h2>Which device is this?</h2>
+    <p class="note" style="text-align:center;margin:0">You use two screens: a big one the team watches, and your phone to control it. Open this page on both.</p>
+    <div class="roles">
+      <button class="role" id="goMon"><em class="hide">Suggested here</em><span class="ic">📺</span><b>Monitor</b><span>The big screen the team watches: laptop, TV or projector</span></button>
+      <button class="role" id="goCtl"><em class="hide">Suggested here</em><span class="ic">📱</span><b>Instructor</b><span>Your phone, to run the case and control the monitor</span></button>
+    </div>
+    <div class="flow"><span>1. <b>Monitor</b> on the laptop</span><span>→</span><span>2. a QR code appears</span><span>→</span><span>3. <b>scan it</b> with your phone</span></div>
+    <button class="btn" id="goSolo" style="width:100%">Only one device? Open both on this screen</button>
+  </div>
 
   <div class="land">
     <div class="card"><h2>What it is</h2>
@@ -251,14 +285,15 @@ button{cursor:pointer}
 
     <div class="card"><h2>How to use it</h2>
       <ol class="steps">
-        <li>On the laptop or projector, open <b>pals.pediaos.com</b> and tap <b>Monitor screen</b>. A QR code and a 4-letter code appear.</li>
-        <li>On your phone, <b>scan the QR code</b> (or open the site, tap <b>Instructor controls</b> and type the code). The phone header turns green: <b>Monitor online</b>.</li>
+        <li>On the laptop or projector, open <b>pals.pediaos.com</b> and tap <b>Monitor</b>. A QR code and a 4-letter code appear.</li>
+        <li>On your phone, <b>scan the QR code</b> (or open the site, tap <b>Instructor</b> and type the code). The phone header turns green: <b>Monitor online</b>.</li>
         <li>On the monitor, tap <b>Start monitor</b> to turn on the sound.</li>
         <li>On your phone, open <b>Scenario</b>, pick a case, read the stem to the team and press <b>Start</b>. Move through the stages with <b>Next stage</b> while you tick what the team does.</li>
-        <li>Use <b>Live</b> for instant changes: rhythm, vitals, CPR, shock, drugs given, and <b>⚡ Surprise</b> complications.</li>
+        <li>Use <b>Live</b> for instant changes: rhythm and breathing quick actions, the step-by-step <b>Cardiac arrest</b> panel (compressions → defibrillator → ROSC), drugs given, and <b>⚡ Surprise</b> complications.</li>
         <li>At the end, open <b>Debrief</b>: time to CPR, time to first shock, adrenaline timing, CPR fraction and the full timeline. Show it on the monitor for the group discussion.</li>
+        <li>To close the monitor, press <b>✕ Exit</b> at its top right.</li>
       </ol>
-      <p class="note" style="margin:8px 0 0"><b>Only one device?</b> In the instructor screen tap <b>Open monitor window here</b> and drag that window onto the projector.</p>
+      <p class="note" style="margin:8px 0 0"><b>Only one device?</b> Tap <b>Only one device? Open both on this screen</b> above; drag the monitor window onto the projector.</p>
     </div>
 
     <div class="card"><h2>What you can do</h2>
@@ -309,7 +344,7 @@ button{cursor:pointer}
   <header id="mHead">
     <div class="pt" id="mPt">Bed 1</div>
     <div id="mBanner"></div>
-    <div class="right"><span id="mSil"></span><span id="mLink" title="Instructor link"><span class="dot"></span></span><span id="mClock">--:--:--</span></div>
+    <div class="right"><span id="mSil"></span><button id="mExit" title="Exit the monitor and go back to the start screen">✕ Exit</button><span id="mLink" title="Instructor link"><span class="dot"></span></span><span id="mClock">--:--:--</span></div>
   </header>
   <div id="mMain">
     <div class="row" id="rEcg"><div class="lab t-hr">II <small>×1</small></div><canvas></canvas></div>
@@ -337,7 +372,8 @@ button{cursor:pointer}
     <div id="qrBox"></div>
     <p style="margin:0 0 14px;color:var(--mut);font-size:14px">On the instructor phone, open <b id="mUrl">pals.pediaos.com</b>, choose <b>Instructor</b> and type this code, or scan the QR.</p>
     <button class="btn pri big" id="mGo" style="width:100%">Start monitor</button>
-    <p class="note" style="margin:10px 0 0">Starting also turns on sound (pulse beep and alarms).</p>
+    <p class="note" style="margin:10px 0 0">Starting also turns on sound (pulse beep and alarms). To close the monitor later, use <b>✕ Exit</b> at the top right.</p>
+    <button class="btn" id="mBack" style="width:100%;margin-top:10px">← Back: this device is not the monitor</button>
   </div>
 </div>
 
@@ -362,6 +398,7 @@ button{cursor:pointer}
       <p style="margin:0 0 10px">Open the monitor in a second window on this device, e.g. drag it to the projector screen. The two windows pair automatically.</p>
       <button class="btn" id="pairLocal">Open monitor window here</button>
     </div>
+    <button class="btn" id="pairBack">← Back to the start screen</button>
   </div>
 
   <!-- Tabs -->

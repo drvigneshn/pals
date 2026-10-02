@@ -35,10 +35,17 @@ function track() {
 const wt = () => Number(S.pt.wt) || 10;
 const scen = () => PC.SCENARIOS.find(s => s.id === sc.id);
 
+let lastBp = null;
+const bpKey = () => S.v.sbp + '/' + S.v.dbp + '/' + PC.perfusing(S);
 function send() {
   S.t = Math.max(Date.now(), (S.t || 0) + 1);
   otherCtl = false;
   track();
+  // The monitor's BP only changes when the cuff measures. Whatever changed the BP (manual edit,
+  // scenario stage, ROSC, surprise) or the pulse (arrest / ROSC), take a reading so the screen follows.
+  const bp = bpKey();
+  if (lastBp !== null && bp !== lastBp) nibpAfter(S.ramp || 0);
+  lastBp = bp;
   if (link) link.sendState(S);
   save(); renderLive(); renderSetup(false);
 }
@@ -71,24 +78,20 @@ function applyVitals() {
   // pick up a number still being typed (some phones fire "change" only on blur)
   for (const x of VIT) { const inp = $('#in_' + x.k), n = inp ? parseFloat(inp.value) : NaN; if (!isNaN(n)) staged[x.k] = clamp(n, x.min, x.max); }
   const changed = VIT.filter(x => Number(staged[x.k]) !== Number(S.v[x.k]));
-  const bpChanged = changed.some(x => x.k === 'sbp' || x.k === 'dbp');
   S.v = { ...staged }; S.vt = Date.now(); S.ramp = ramp;
   if (changed.length) addLog('Vitals → ' + changed.map(x => `${x.l} ${fmtV(x.k, staged[x.k])}`).join(', ') + (ramp ? ' over ' + RAMPS.find(r => r[0] === ramp)[1] : ''), 'vitals');
   send();
-  if (bpChanged) nibpAfter(ramp);
 }
 /* The monitor's BP only changes when the cuff cycles, so start a measurement timed to finish
    as the new BP is reached (a cycle takes ~17 s). */
 function nibpAfter(rampMs) {
   if (!S.cuff) return;
   clearTimeout(nibpTimer);
-  nibpTimer = setTimeout(() => { S.nibpAt = Date.now(); addLog('NIBP measurement (BP changed)'); send(); }, Math.max(0, rampMs - 15000));
+  nibpTimer = setTimeout(() => { S.nibpAt = Date.now(); send(); }, Math.max(0, rampMs - 15000));
 }
 /* Apply vitals straight away (quick actions and surprises), keeping the staged editor in step. */
 function setVitals(patch, rampMs) {
-  const bp = 'sbp' in patch || 'dbp' in patch;
   S.v = Object.assign({}, S.v, patch); staged = { ...S.v }; S.vt = Date.now(); S.ramp = rampMs;
-  if (bp) nibpAfter(rampMs);
 }
 function setRhythm(key) {
   const r = PC.RHYTHMS.find(x => x.key === key); if (!r) return;
@@ -106,7 +109,7 @@ function setRhythm(key) {
 function toggleCPR() {
   S.cpr = !S.cpr;
   if (S.cpr) T.cycleStart = Date.now();
-  addLog(S.cpr ? 'CPR started' : 'CPR stopped', 'cpr');
+  addLog(S.cpr ? 'CPR started' : 'CPR paused', 'cpr');
   send();
 }
 function energy() {
@@ -173,6 +176,29 @@ function quick(k) {
     addLog('Hypoxia: SpO₂ → 80 over 20 s', 'surprise');
   }
   send();
+}
+const RESP = [
+  ['norm', 'Normal breathing'], ['distress', 'Resp distress'], ['bronch', 'Bronchospasm'], ['upper', 'Upper airway obstruction'],
+  ['hypovent', 'Hypoventilation'], ['tiring', 'Resp failure (tiring)'], ['apnoea', 'Apnoea'], ['bag', 'Effective BVM / ventilation'],
+];
+/* Breathing states: change RR, SpO₂, EtCO₂ and capnogram shape together (drift over 20–45 s). */
+function resp(k) {
+  const g = age(), n = g.norm, p = PC.perfusing(S), up = f => p ? { hr: Math.round(Math.max(S.v.hr, n.hr) * f) } : {};
+  const name = (RESP.find(x => x[0] === k) || [])[1];
+  let shape = 'normal', r = 20000, v;
+  switch (k) {
+    case 'norm': v = { rr: n.rr, spo2: 98, etco2: 38 }; break;
+    case 'distress': v = Object.assign({ rr: Math.round(g.rr[1] * 1.4), spo2: 91, etco2: 32 }, up(1.15)); break;
+    case 'bronch': v = Object.assign({ rr: Math.round(g.rr[1] * 1.3), spo2: 88, etco2: 48 }, up(1.15)); shape = 'obstructive'; break;
+    case 'upper': v = Object.assign({ rr: Math.round(g.rr[1] * 1.3), spo2: 86, etco2: 30 }, up(1.2)); break;
+    case 'hypovent': v = { rr: Math.max(6, Math.round(g.rr[0] * 0.45)), spo2: 89, etco2: 60 }; break;
+    case 'tiring': v = Object.assign({ rr: Math.max(8, Math.round(g.rr[0] * 0.6)), spo2: 80, etco2: 70 }, up(1.2)); r = 30000; break;
+    case 'apnoea': v = { rr: 0, spo2: 70 }; r = 45000; break;
+    case 'bag': v = { rr: n.rr, spo2: 96, etco2: 40 }; r = 30000; S.noVent = false; delete active.tube; break;
+  }
+  S.co2Shape = shape;
+  setVitals(v, r);
+  addLog('Breathing: ' + name, 'resp'); send(); PC.toast(name);
 }
 const SURPRISES = [
   { key: 'tube', label: 'Tube dislodged', sub: 'no CO₂, SpO₂ falls', when: 'any', fix: 'Tube re-sited' },
@@ -273,13 +299,32 @@ function buildLive() {
     <div class="note" style="margin:10px 0 6px">Team did… (logged for the debrief)</div>
     <div class="qa ev" id="qaEv">${EVENTS.map(e => `<button class="chip" data-ev="${e.key}">${e.label}</button>`).join('')}</div>
   </div>
-  <div class="card"><h3>Arrest</h3>
-    <div class="rowf"><button class="btn big grow" id="bCPR"></button>${segHTML('segQ', [['good', 'Good CPR'], ['poor', 'Poor CPR']], S.cprQ)}</div>
-    <div class="note" id="cycleNote" style="margin:6px 0 10px"></div>
-    <div class="rowf" style="margin-bottom:8px"><span>Sync</span><button class="sw" id="swSync" aria-label="Synchronised mode"></button><span class="note grow" id="enNote"></span></div>
-    <div class="chips" id="enChips"></div>
-    <button class="btn red big" id="bShock" style="width:100%;margin-top:10px"></button>
-    <div class="rowf" style="margin-top:10px"><button class="btn grow" id="bROSC">ROSC</button><button class="btn grow" id="bNIBP">NIBP now</button><button class="btn grow" id="bSil">Silence 2 min</button></div>
+  <div class="card"><h3>🫁 Breathing <span class="note">RR, SpO₂, EtCO₂ drift together</span></h3>
+    <div class="qa ev" id="qaResp">${RESP.map(([k, l]) => `<button class="chip" data-resp="${k}">${l}</button>`).join('')}</div>
+  </div>
+  <div class="card"><h3>🫀 Cardiac arrest <span class="note">mirror what the team does, top to bottom</span></h3>
+    <div class="step"><div class="sn">1</div><div class="sb">
+      <b>Chest compressions</b>
+      <span class="note">Tap <b>Start</b> when the team starts compressions and <b>Pause</b> for each pulse / rhythm check. The monitor then shows compression artefact, counts compressions as HR, and times the 2-minute cycle.</span>
+      <button class="btn big" id="bCPR" style="width:100%"></button>
+      <span class="note" id="cycleNote"></span>
+      <div class="rowf"><span class="note">How good is their CPR?</span>${segHTML('segQ', [['good', '👍 Good'], ['poor', '👎 Poor']], S.cprQ)}</div>
+      <span class="note">Good: rate ≈ 110, EtCO₂ ≈ 18. Poor: slow and shallow, EtCO₂ ≈ 8.</span>
+    </div></div>
+    <div class="step"><div class="sn">2</div><div class="sb">
+      <b>Defibrillator</b>
+      ${segHTML('segMode', [['defib', '⚡ Defibrillate'], ['sync', '〰 Sync cardioversion']], S.sync ? 'sync' : 'defib')}
+      <span class="note" id="enNote"></span>
+      <div class="chips" id="enChips"></div>
+      <button class="btn red big" id="bShock" style="width:100%"></button>
+      <span class="note">Press when the team delivers the shock: the monitor shows the shock artefact. Then choose the rhythm that follows.</span>
+    </div></div>
+    <div class="step"><div class="sn">3</div><div class="sb">
+      <b>Outcome</b>
+      <button class="btn big" id="bROSC" style="width:100%;border-color:var(--ok)">✅ ROSC: pulse is back</button>
+      <span class="note">Stops CPR, sets sinus rhythm with a pulse; EtCO₂ jumps, SpO₂ and BP come back. Still in arrest? Pick the next rhythm in <b>Quick actions</b>.</span>
+    </div></div>
+    <div class="rowf" style="margin-top:6px"><button class="btn grow" id="bNIBP">Measure BP now</button><button class="btn grow" id="bSil">Silence alarms 2 min</button></div>
   </div>
   <div class="card"><h3>⚡ Surprise <span class="note">instant complications</span></h3>
     <button class="btn purple big" id="bSurp" style="width:100%">⚡ Random surprise</button>
@@ -299,7 +344,7 @@ function buildLive() {
     PC.RHYTHMS.map(r => `<button class="chip${r.arrest ? ' red' : ''}" data-rh="${r.key}">${esc(r.label)}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</button>`).join('')}</div></div>`;
   $('#bCPR').onclick = toggleCPR;
   $('#segQ').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.cprQ = b.dataset.v; addLog('CPR quality: ' + S.cprQ); send(); };
-  $('#swSync').onclick = () => { S.sync = !S.sync; addLog('Sync ' + (S.sync ? 'ON' : 'OFF')); send(); };
+  $('#segMode').onclick = e => { const b = e.target.closest('button'); if (!b) return; const v = b.dataset.v === 'sync'; if (v === S.sync) return; S.sync = v; addLog(v ? 'Sync cardioversion mode' : 'Defibrillation mode'); send(); };
   $('#enChips').onclick = e => { const b = e.target.closest('[data-en]'); if (!b) return; energyKey = b.dataset.en; save(); renderLive(); };
   $('#bShock').onclick = doShock;
   $('#bROSC').onclick = rosc;
@@ -307,6 +352,7 @@ function buildLive() {
   $('#bSil').onclick = () => { S.silenceAt = Date.now(); send(); PC.toast('Alarms silenced for 2 min'); };
   $('#rhChips').onclick = e => { const b = e.target.closest('[data-rh]'); if (b) setRhythm(b.dataset.rh); };
   $('#qaRh').onclick = e => { const b = e.target.closest('[data-q]'); if (b) quick(b.dataset.q); };
+  $('#qaResp').onclick = e => { const b = e.target.closest('[data-resp]'); if (b) resp(b.dataset.resp); };
   $('#qaEv').onclick = e => { const b = e.target.closest('[data-ev]'); if (b) logEvent(b.dataset.ev); };
   $('#bSurp').onclick = randomSurprise;
   $('#surpList').onclick = e => { const b = e.target.closest('[data-surp]'); if (b) surprise(b.dataset.surp); };
@@ -344,13 +390,13 @@ function renderVitals() {
 function renderLive() {
   if (!$('#bCPR')) return;
   const b = $('#bCPR');
-  b.textContent = S.cpr ? '■ Stop CPR' : '▶ Start CPR'; b.className = 'btn big grow ' + (S.cpr ? 'red' : 'pri');
+  b.textContent = S.cpr ? '⏸ Pause compressions (pulse / rhythm check)' : '▶ Start compressions'; b.className = 'btn big ' + (S.cpr ? 'red' : 'pri');
   $$('#segQ button').forEach(x => x.classList.toggle('on', x.dataset.v === S.cprQ));
-  $('#swSync').classList.toggle('on', S.sync);
+  $$('#segMode button').forEach(x => x.classList.toggle('on', (x.dataset.v === 'sync') === S.sync));
   const e = energy();
   $('#enChips').innerHTML = PC.ENERGIES.filter(x => x.kind === (S.sync ? 'sync' : 'defib'))
     .map(x => `<button class="chip${x.key === e.key ? ' on' : ''}" data-en="${x.key}">${PC.joules(x.per, wt())} J<small>${esc(x.label)} · ${esc(x.note)}</small></button>`).join('');
-  $('#enNote').textContent = S.sync ? 'Markers show on each R wave' : '';
+  $('#enNote').innerHTML = (S.sync ? '<b>Sync cardioversion</b> for SVT / VT <b>with a pulse</b>; sync markers appear on each R wave.' : '<b>Defibrillation</b> for VF / pulseless VT.') + ` Energy for ${esc(S.pt.wt)} kg:`;
   $('#bShock').textContent = `⚡ ${S.sync ? 'Cardiovert' : 'Shock'} ${PC.joules(e.per, wt())} J`;
   $$('#rhChips .chip').forEach(c => c.classList.toggle('on', c.dataset.rh === PC.rhythmKey(S)));
   $$('#qaRh .chip').forEach(c => c.classList.toggle('on', c.dataset.q === PC.rhythmKey(S)));
@@ -475,7 +521,7 @@ function renderTimers() {
   const cy = S.cpr && T.cycleStart ? 120000 - (now - T.cycleStart) : null;
   const cyTxt = cy == null ? '--:--' : cy >= 0 ? PC.mmss(cy) : 'CHECK';
   const cn = $('#cycleNote');
-  if (cn) cn.innerHTML = S.cpr ? `2-min cycle: <b style="color:${cy < 0 ? 'var(--danger)' : cy < 15000 ? 'var(--warn)' : 'var(--txt)'}">${cyTxt}</b>${cy < 0 ? ' · rhythm check due' : ''}` + (T.adrAt ? ` · adrenaline ${PC.mmss(now - T.adrAt)} ago` : '') : (T.shocks ? `${T.shocks} shock(s) given` : 'CPR off');
+  if (cn) cn.innerHTML = S.cpr ? `Rhythm check in <b style="color:${cy < 0 ? 'var(--danger)' : cy < 15000 ? 'var(--warn)' : 'var(--txt)'}">${cyTxt}</b>${cy < 0 ? ' · rhythm check due' : ''}` +     (T.adrAt ? ` · adrenaline ${PC.mmss(now - T.adrAt)} ago` : '') : (T.shocks ? `Not running · ${T.shocks} shock(s) given` : 'Not running');
   if (!$('#tvSc')) return;
   $('#tvSc').textContent = PC.mmss(scElapsed(now)) + (T.scRun || !T.scAcc ? '' : ' ⏸');
   $('#tvCy').textContent = cyTxt;
@@ -515,7 +561,7 @@ function copyLog() {
 
 /* ---------- debrief ---------- */
 const dur = ms => ms < 60000 ? Math.round(ms / 1000) + ' s' : PC.mmss(ms);
-const DEB_KINDS = new Set(['stage', 'rhythm', 'cpr', 'shock', 'drug', 'event', 'surprise', 'rosc', 'note']);
+const DEB_KINDS = new Set(['stage', 'rhythm', 'cpr', 'shock', 'drug', 'event', 'surprise', 'rosc', 'note', 'resp']);
 function computeDebrief() {
   const end = T.endAt || Date.now();
   const snaps = ev.filter(e => e.type === 'snap');
@@ -642,9 +688,10 @@ function buildSetup() {
     <label class="fld" style="margin-top:8px">Text<textarea id="rvText" rows="4">${esc(S.reveal.text)}</textarea></label>
     <div class="rowf" style="margin-top:10px"><button class="btn pri grow" id="bRvShow">Show on monitor</button><button class="btn grow" id="bRvHide">Hide</button></div></div>
   <div class="card"><h3>About</h3>
-    <p style="margin:0 0 8px">PALS Companion ${esc(PC.VERSION)} · created by Dr Vignesh N</p>
+    <p style="margin:0 0 4px">PALS Companion ${esc(PC.VERSION)} · created by <b>Dr Vignesh N</b></p>
+    <p class="note" style="margin:0 0 8px">Mentors: Dr Janani Sankar, Medical Director, KKCTH · Dr Radhika Raman, Senior Consultant, KKCTH</p>
     <p class="note" style="margin:0 0 10px">For training only. Not a medical device. The link uses public relays, so only simulated values are sent. Verify doses and energies against current AHA PALS / IAP guidance. Not affiliated with or endorsed by the American Heart Association. Not for reuse or redistribution without written permission.</p>
-    <div class="rowf"><a class="btn" href="about.html" style="text-decoration:none">About</a><a class="btn" href="privacy.html" style="text-decoration:none">Privacy</a><button class="btn" id="bRole">Switch to monitor mode</button><button class="btn" id="bReset">Reset everything</button></div></div>`;
+    <div class="rowf"><a class="btn" href="about.html" style="text-decoration:none">About</a><a class="btn" href="privacy.html" style="text-decoration:none">Privacy</a><button class="btn" id="bRole">Back to start screen</button><button class="btn" id="bReset">Reset everything</button></div></div>`;
   $('#bOpenMon').onclick = openLocalMonitor;
   $('#bRepair').onclick = () => { if (confirm('Disconnect from this monitor and pair a different code?')) showPair(); };
   $('#bPt').onclick = () => {
@@ -670,7 +717,7 @@ function buildSetup() {
   $('#rvTpl').onchange = e => { const t = TEMPLATES[e.target.value]; if (t) { $('#rvTitle').value = t[0]; $('#rvText').value = t[1]; } };
   $('#bRvShow').onclick = () => { S.reveal = { on: true, title: $('#rvTitle').value.slice(0, 60), text: $('#rvText').value.slice(0, 600) }; addLog('Result shown: ' + S.reveal.title); send(); };
   $('#bRvHide').onclick = () => { S.reveal = Object.assign({}, S.reveal, { on: false }); send(); };
-  $('#bRole').onclick = () => { PC.sess.set('pals-role', 'mon'); location.hash = '#monitor'; location.reload(); };
+  $('#bRole').onclick = () => PC.leave();
   $('#bReset').onclick = () => { if (confirm('Reset all instructor data on this device (log, scenario, settings)?')) { try { localStorage.removeItem(KEY); } catch {} location.hash = '#control'; location.reload(); } };
 }
 function renderSetup(full) {
@@ -712,6 +759,7 @@ function connect(c) {
     },
   });
   link.start();
+  lastBp = bpKey();                      // the monitor starts with this BP on screen
   if (!S.t) S.t = Date.now();
   link.sendState(S);
   link.heartbeat();
@@ -749,6 +797,7 @@ function openLocalMonitor() {
 }
 
 PC.Controller = {
+  openLocal: () => openLocalMonitor(),
   start(initialCode) {
     $('#ctl').classList.remove('hide');
     document.title = 'PALS Companion · Instructor';
@@ -762,6 +811,7 @@ PC.Controller = {
     $('#pairGo').onclick = go;
     $('#pairIn').oninput = e => { e.target.value = PC.cleanCode(e.target.value); if (e.target.value.length === 4) go(); };
     $('#pairLocal').onclick = openLocalMonitor;
+    $('#pairBack').onclick = () => PC.leave();
     setInterval(() => { if (link) link.heartbeat(); renderStatus(); }, 4000);
     setInterval(renderTimers, 500);
     PC._wantWake = true; PC.wake();
@@ -806,6 +856,10 @@ function route() {
     document.documentElement.dataset.theme = mq && mq.matches ? 'light' : 'dark';
     $('#goMon').onclick = () => { $('#chooser').classList.add('hide'); location.hash = '#monitor'; route(); };
     $('#goCtl').onclick = () => { $('#chooser').classList.add('hide'); location.hash = '#control'; route(); };
+    $('#goSolo').onclick = () => { $('#chooser').classList.add('hide'); location.hash = '#control'; route(); PC.Controller.openLocal(); };
+    // Suggest a role: phones → Instructor, bigger screens → Monitor.
+    const phone = window.matchMedia && matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600;
+    const rec = $(phone ? '#goCtl' : '#goMon'); rec.classList.add('rec'); rec.querySelector('em').classList.remove('hide');
   }
 }
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

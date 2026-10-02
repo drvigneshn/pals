@@ -3,7 +3,7 @@
 (() => {
 'use strict';
 const PC = window.PC = {};
-PC.VERSION = 'v0.2.0';
+PC.VERSION = 'v0.3.0';
 
 /* ---------- small helpers ---------- */
 PC.$ = (s, r = document) => r.querySelector(s);
@@ -222,6 +222,14 @@ PC.wake = async () => {
   try { if ('wakeLock' in navigator && document.visibilityState === 'visible') PC._wl = await navigator.wakeLock.request('screen'); } catch {}
 };
 document.addEventListener('visibilitychange', () => { if (PC._wantWake) PC.wake(); });
+
+/* Leave the monitor or instructor screen and return to the start ("Which device is this?") screen. */
+PC.leave = () => {
+  try { if (document.fullscreenElement) document.exitFullscreen(); } catch {}
+  try { sessionStorage.removeItem('pals-role'); sessionStorage.removeItem('pals-mon-code'); } catch {}
+  history.replaceState(null, '', location.pathname + location.search);
+  location.reload();
+};
 
 PC.toast = msg => {
   const t = document.getElementById('toast'); if (!t) return;

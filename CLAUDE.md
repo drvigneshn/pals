@@ -3,6 +3,8 @@
 Paediatric resuscitation **teaching** tool. One device shows a simulated bedside monitor; the instructor's
 phone controls it live. Sister app of Code Blue Companion (`drvigneshn/cbc`, cbc.pediaos.com).
 Owner: Dr Vignesh N (paediatrician, no CS background): explain changes in plain language.
+Mentors (credited on the start screen, About and Setup → About): Dr Janani Sankar, Medical Director, KKCTH;
+Dr Radhika Raman, Senior Consultant, KKCTH.
 
 ## Live site & hosting
 - **Live at:** https://pals.pediaos.com (GitHub Pages from **`main`**, root folder).
@@ -27,7 +29,7 @@ Owner: Dr Vignesh N (paediatrician, no CS background): explain changes in plain 
 Bump in ALL places, keep in sync:
 1. `PC.VERSION` in `js/core.js` (shown on the chooser and in Setup → About)
 2. `CACHE` in `sw.js` (`'pals-vX.Y.Z'`) — this is what pushes updates to installed users; never skip it.
-Small change → patch; new feature → minor. Current: **v0.2.0**. The version shows on the landing footer, disclaimer gate, monitor footer,
+Small change → patch; new feature → minor. Current: **v0.3.0**. The version shows on the landing footer, disclaimer gate, monitor footer,
 instructor footer, About and Privacy (all read `PC.VERSION`).
 
 ## Attribution on commits
@@ -65,6 +67,13 @@ in code, PRs or docs. Do NOT open a PR unless asked.
   `noVent` (breaths return no CO₂), CPR panel (`cprBar`: rate vs 100–120, depth from `cprQ`, hands-off seconds),
   `debrief` overlay. Each vital ramps independently (a later change doesn't restart another's drift); RR rising from
   apnoea starts at the target rate.
+- **Start screen:** "Which device is this?" Monitor / Instructor cards (suggests Instructor on phones), plus
+  "Only one device?" (`#goSolo` → instructor + pop-up monitor). `PC.leave()` returns to it from anywhere
+  (monitor ✕ Exit top-right, Back on the monitor start overlay, Back on the pair screen, Setup → Back to start).
+- **NIBP:** the controller's `send()` triggers a cuff reading whenever BP targets or perfusion change (stages, ROSC,
+  arrest, surprises, manual edits) via `nibpAfter(ramp)`; the monitor pre-fills a BP on its first state.
+- **Live tab order:** Quick actions (rhythms + team events) → 🫁 Breathing states (`resp()`) → 🫀 Cardiac arrest
+  steps (1 compressions, 2 defibrillator with Defibrillate / Sync segment, 3 ROSC) → ⚡ Surprise → Vitals → All rhythms.
 - **Disclaimer gate** `#dGate`: once per device, `localStorage pals-disclaimer-ack-v1`. Never gate per session.
 
 ## Constraints (keep these)
@@ -80,6 +89,7 @@ Browser checks (Playwright + pre-installed Chromium):
 ```bash
 cd test && npm install && node servers.js &   # MQTT-over-WS broker :8888 + static app server :8080
 node sync.js     # two isolated browsers paired via relay: VF alarm, CPR HR/EtCO2, shock, ROSC, vitals, scenario, leads off
+node v3.js       # credits, start screen, Exit/Back, BP follows stages/ROSC/arrest, breathing, arrest panel
 node v2.js       # gate, landing/footer/version, quick actions, surprise (tube), exam mode, CPR panel, debrief
 node robust.js   # clock skew between devices, phone wake-up, two instructor screens, Apply + auto NIBP
 node local.js    # one device, pop-up monitor via BroadcastChannel: NIBP, alarms, themes, reload doesn't replay shock
