@@ -228,22 +228,29 @@ const RESP = [
   ['hypovent', 'Hypoventilation'], ['tiring', 'Resp failure (tiring)'], ['apnoea', 'Apnoea'], ['bag', 'Effective BVM / ventilation'],
 ];
 /* Breathing states: change RR, SpO₂, EtCO₂ and capnogram shape together (drift over 20–45 s). */
+/* Breathing states. The breathing pattern (RR, depth, regularity) changes at once; SpO₂, HR and EtCO₂
+   follow over ~12 s (apnoea: SpO₂ keeps falling over 40 s). HR is set from the age-normal rate, so
+   repeated taps never compound, and Normal / Effective BVM bring it back. */
 function resp(k) {
-  const g = age(), n = g.norm, p = PC.perfusing(S), up = f => p ? { hr: Math.round(Math.max(S.v.hr, n.hr) * f) } : {};
+  const g = age(), n = g.norm, p = PC.perfusing(S), hr = f => (p ? { hr: Math.round(n.hr * f) } : {});
   const name = (RESP.find(x => x[0] === k) || [])[1];
-  let shape = 'normal', r = 20000, v;
-  switch (k) {
-    case 'norm': v = { rr: n.rr, spo2: 98, etco2: 38 }; break;
-    case 'distress': v = Object.assign({ rr: Math.round(g.rr[1] * 1.4), spo2: 91, etco2: 32 }, up(1.15)); break;
-    case 'bronch': v = Object.assign({ rr: Math.round(g.rr[1] * 1.3), spo2: 88, etco2: 48 }, up(1.15)); shape = 'obstructive'; break;
-    case 'upper': v = Object.assign({ rr: Math.round(g.rr[1] * 1.3), spo2: 86, etco2: 30 }, up(1.2)); break;
-    case 'hypovent': v = { rr: Math.max(6, Math.round(g.rr[0] * 0.45)), spo2: 89, etco2: 60 }; break;
-    case 'tiring': v = Object.assign({ rr: Math.max(8, Math.round(g.rr[0] * 0.6)), spo2: 80, etco2: 70 }, up(1.2)); r = 30000; break;
-    case 'apnoea': v = { rr: 0, spo2: 70 }; r = 45000; break;
-    case 'bag': v = { rr: n.rr, spo2: 96, etco2: 40 }; r = 30000; S.noVent = false; delete active.tube; break;
-  }
-  S.co2Shape = shape;
-  setVitals(v, r);
+  const R = {   // [rr, depth, irregularity, capnogram, slow vitals, drift ms]
+    norm:     [n.rr, 1, 0, 'normal', Object.assign({ spo2: 98, etco2: 38 }, hr(1)), 12000],
+    distress: [Math.round(g.rr[1] * 1.4), 0.75, 0.05, 'normal', Object.assign({ spo2: 91, etco2: 32 }, hr(1.25)), 12000],
+    bronch:   [Math.round(g.rr[1] * 1.3), 0.7, 0.05, 'obstructive', Object.assign({ spo2: 88, etco2: 48 }, hr(1.25)), 12000],
+    upper:    [Math.round(g.rr[1] * 1.3), 0.6, 0.1, 'normal', Object.assign({ spo2: 86, etco2: 30 }, hr(1.3)), 12000],
+    hypovent: [Math.max(6, Math.round(g.rr[0] * 0.45)), 0.5, 0.15, 'normal', Object.assign({ spo2: 89, etco2: 60 }, hr(1)), 12000],
+    tiring:   [Math.max(8, Math.round(g.rr[0] * 0.6)), 0.35, 0.4, 'normal', Object.assign({ spo2: 80, etco2: 70 }, hr(1.3)), 12000],
+    apnoea:   [0, 0, 0, S.co2Shape, { spo2: 70 }, 40000],
+    bag:      [n.rr, 1, 0, 'normal', Object.assign({ spo2: 96, etco2: 40 }, hr(1.05)), 15000],
+  }[k];
+  if (!R) return;
+  if (k === 'bag') { S.noVent = false; delete active.tube; }
+  // 1) breathing pattern now
+  S.co2Shape = R[3]; S.breathAmp = R[1]; S.breathIrr = R[2];
+  setVitals({ rr: R[0] }, 0); send();
+  // 2) saturation, heart rate and CO₂ follow
+  setVitals(R[4], R[5]);
   addLog('Breathing: ' + name, 'resp'); send(); PC.toast(name);
 }
 const SURPRISES = [

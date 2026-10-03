@@ -34,7 +34,7 @@ Dr Radhika Raman, Senior Consultant, KKCTH.
 Bump in ALL places, keep in sync:
 1. `PC.VERSION` in `js/core.js` (shown on the chooser and in Setup → About)
 2. `CACHE` in `sw.js` (`'pals-vX.Y.Z'`) — this is what pushes updates to installed users; never skip it.
-Small change → patch; new feature → minor. Current: **v0.5.2**. The version shows on the landing footer, disclaimer gate, monitor footer,
+Small change → patch; new feature → minor. Current: **v0.5.3**. The version shows on the landing footer, disclaimer gate, monitor footer,
 instructor footer, About and Privacy (all read `PC.VERSION`).
 
 ## Attribution on commits

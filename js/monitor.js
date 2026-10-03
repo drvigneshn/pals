@@ -118,10 +118,12 @@ function schedule(now) {
     // Below 4/min counts as apnoea; re-check soon. (A rate ramping up from 0 must not
     // schedule a single minute-long breath that freezes the capnogram.)
     if (rr < 4) { E.nextBr = Math.max(E.nextBr, now) + 500; break; }
-    const T = 60000 / rr * (1 + (Math.random() - 0.5) * 0.05);
+    const irr = S.breathIrr || 0;
+    const T = 60000 / rr * (1 + (Math.random() - 0.5) * (0.05 + 2 * irr));
     const last = E.br[E.br.length - 1];
     const co2 = S.noVent ? 0 : E.et * (1 + (Math.random() - 0.5) * 0.03);   // tube out/blocked: no CO2 returns
-    E.br.push({ t: E.nextBr, T, ti: Math.min(0.38 * T, 900), E: co2, prevE: last ? last.E : 0 });
+    const A = (S.breathAmp == null ? 1 : S.breathAmp) * (1 - irr * Math.random());
+    E.br.push({ t: E.nextBr, T, ti: Math.min(0.38 * T, 900), E: co2, prevE: last ? last.E : 0, A });
     E.nextBr += T;
   }
   // tidy old items
@@ -214,7 +216,7 @@ function respAt(t) {
   const b = breathAt(t);
   if (b) {
     const u = t - b.t;
-    y = u < b.ti ? 0.5 - 0.5 * Math.cos(Math.PI * u / b.ti) : 0.5 + 0.5 * Math.cos(Math.PI * (u - b.ti) / (b.T - b.ti));
+    y = (b.A == null ? 1 : b.A) * (u < b.ti ? 0.5 - 0.5 * Math.cos(Math.PI * u / b.ti) : 0.5 + 0.5 * Math.cos(Math.PI * (u - b.ti) / (b.T - b.ti)));
   }
   if (S.cpr) y += 0.3 * cprArt(t);
   return y + (Math.random() - 0.5) * 0.01;
@@ -377,7 +379,11 @@ function evalAlarms(o, now) {
     if (o.sp < 85) add(3, 'SpO₂ LOW ' + o.sp, 'tSP');
     else if (o.sp < L.spo2Low) add(2, 'SpO₂ LOW ' + o.sp + ' < ' + L.spo2Low, 'tSP');
   }
-  if (S.co2On && o.co === 0 && E.br.length) add(3, 'APNOEA / NO CO₂', 'tCO');
+  // Apnoea from the chest leads (no breath for > 10 s), with or without capnography
+  const lb = E.br[E.br.length - 1];
+  const apnoea = S.leads && !S.cpr && (rrAt(now) < 4 || (lb && now - (lb.t + lb.T) > 10000));
+  if (apnoea) a.unshift({ p: 3, msg: 'APNOEA', tile: 'tRR' });     // first among equal-priority alarms
+  else if (S.co2On && o.co === 0 && E.br.length) add(3, 'NO CO₂', 'tCO');
   else if (S.co2On && o.co != null && o.co > 0) {
     if (o.co > L.etco2[1]) add(2, 'EtCO₂ HIGH ' + o.co, 'tCO');
     else if (o.co < L.etco2[0] && !S.cpr) add(2, 'EtCO₂ LOW ' + o.co, 'tCO');

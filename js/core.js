@@ -3,7 +3,7 @@
 (() => {
 'use strict';
 const PC = window.PC = {};
-PC.VERSION = 'v0.5.2';
+PC.VERSION = 'v0.5.3';
 
 /* ---------- small helpers ---------- */
 PC.$ = (s, r = document) => r.querySelector(s);
@@ -157,6 +157,7 @@ PC.defaultState = () => ({
   silenceAt: 0, alarms: true, beep: true,
   monTheme: 'dark', frozen: false,
   intubated: false,               // EtCO₂ / capnogram only once the airway is intubated
+  breathAmp: 1, breathIrr: 0,     // respiration trace depth and irregularity (breathing states)
   autoBp: true,                   // BP follows the rhythm automatically
   exam: false,                    // exam mode: alarm banner says only "ALARM", never the rhythm name
   noVent: false,                  // airway complication (tube out / blocked): no CO2 comes back
