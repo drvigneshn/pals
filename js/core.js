@@ -3,7 +3,7 @@
 (() => {
 'use strict';
 const PC = window.PC = {};
-PC.VERSION = 'v0.4.1';
+PC.VERSION = 'v0.5.0';
 
 /* ---------- small helpers ---------- */
 PC.$ = (s, r = document) => r.querySelector(s);
@@ -38,6 +38,46 @@ PC.AGE = {
   adol:    { label: 'Adolescent (11+ y)', hr: [55, 120],  rr: [12, 24], sbpLow: 90, norm: { hr: 80, rr: 16, sbp: 115, dbp: 70 } },
 };
 PC.limits = g => { const a = PC.AGE[g] || PC.AGE.child; return { hr: a.hr, rr: a.rr, sbpLow: a.sbpLow, spo2Low: 90, etco2: [30, 50] }; };
+
+/* Age in months from text like "4 y", "18 mo", "1½ y", "6 months", "10 d". */
+PC.parseAge = txt => {
+  const m = String(txt || '').toLowerCase().replace('½', '.5').match(/([\d.]+)\s*(d|day|w|wk|week|m|mo|month|y|yr|year)?/);
+  if (!m) return null;
+  const n = parseFloat(m[1]), u = (m[2] || 'y')[0];
+  if (isNaN(n)) return null;
+  return u === 'd' ? n / 30 : u === 'w' ? n / 4.3 : u === 'm' ? n : n * 12;
+};
+PC.groupFor = mo => mo < 1 ? 'neo' : mo < 12 ? 'infant' : mo < 48 ? 'toddler' : mo < 132 ? 'child' : 'adol';
+/* Estimated weight (APLS-style): infants 0.5×months+4; 1–5 y 2×age+8; 6–12 y 3×age+7. */
+PC.estWeight = mo => {
+  if (mo < 1) return 3.5;
+  if (mo < 12) return Math.round((0.5 * mo + 4) * 10) / 10;
+  const y = mo / 12;
+  return Math.round(y <= 5 ? 2 * y + 8 : Math.min(3 * y + 7, 70));
+};
+/* Hypotension cut-off (PALS): < 60 newborn, < 70 infant, < 70 + 2×age(y) for 1–10 y, < 90 above 10 y. */
+PC.sbpLowFor = mo => mo < 1 ? 60 : mo < 12 ? 70 : mo < 132 ? Math.round(70 + 2 * Math.floor(mo / 12)) : 90;
+PC.ageMonths = pt => (pt && pt.ageM != null ? pt.ageM : PC.parseAge(pt && pt.age));
+PC.limitsFor = pt => {
+  const mo = PC.ageMonths(pt);
+  const g = mo != null ? PC.groupFor(mo) : (pt && pt.group) || 'child';
+  const L = PC.limits(g);
+  if (mo != null) L.sbpLow = PC.sbpLowFor(mo);
+  L.group = g; return L;
+};
+/* Expected BP for the age, adjusted for the rhythm (used when "auto BP" is on). */
+PC.bpFor = (pt, rhythm, pulse, hr) => {
+  const st = { rhythm, pulse };
+  if (!PC.perfusing(st)) return { sbp: 0, dbp: 0 };
+  const L = PC.limitsFor(pt), n = (PC.AGE[L.group] || PC.AGE.child).norm;
+  let f = 1;
+  if (rhythm === 'vt') f = 0.75;
+  else if (rhythm === 'svt') f = hr > 220 ? 0.85 : 0.92;
+  else if (rhythm === 'avb3') f = 0.8;
+  else if (rhythm === 'avb2a' || rhythm === 'avb2b') f = 0.9;
+  else if (hr && hr < L.hr[0] * 0.7) f = 0.8;            // significant bradycardia
+  return { sbp: Math.round(n.sbp * f), dbp: Math.round(n.dbp * f) };
+};
 
 /* ---------- rhythms ----------
    `id` is what the monitor draws; `pulse` is whether it perfuses.
@@ -116,6 +156,8 @@ PC.defaultState = () => ({
   nibpAt: 0, nibpAuto: 0,         // auto interval in minutes (0 = manual)
   silenceAt: 0, alarms: true, beep: true,
   monTheme: 'dark', frozen: false,
+  intubated: false,               // EtCO₂ / capnogram only once the airway is intubated
+  autoBp: true,                   // BP follows the rhythm automatically
   exam: false,                    // exam mode: alarm banner says only "ALARM", never the rhythm name
   noVent: false,                  // airway complication (tube out / blocked): no CO2 comes back
   cprBar: true,                   // CPR feedback panel on the monitor
@@ -139,7 +181,9 @@ PC.mergeState = st => {
    so device clocks never have to agree.
    1. BroadcastChannel – two windows on the same device (works offline).
    2. MQTT over secure WebSocket through public brokers – different devices.
-      The state topic is retained so a monitor that joins late gets it at once.
+      Every state goes to `/live` (normal message) and `/state` (retained, so a monitor that joins late
+      gets it at once). Copies on `/state` count as start-up copies only in the first seconds after
+      subscribing, so we never depend on how a broker sets the retain flag.
    Only simulated values travel here: never add real patient identifiers. */
 const DEFAULT_BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt'];
 PC.brokers = () => {
@@ -167,11 +211,15 @@ PC.Link = class {
           reconnectPeriod: 3000, connectTimeout: 8000, clean: true });
       } catch { continue; }
       c.on('connect', () => {
-        c.subscribe([this.base + '/state', this.base + '/hb/#']);
+        c._subAt = Date.now();
+        c.subscribe([this.base + '/state', this.base + '/live', this.base + '/hb/#']);
         if (this.last && this.role === 'ctl') c.publish(this.base + '/state', this.last, { retain: true });
         this._status();
       });
-      c.on('message', (topic, buf, pkt) => { try { this._in(JSON.parse(buf.toString()), 'relay', !!(pkt && pkt.retain)); } catch {} });
+      c.on('message', (topic, buf) => {
+        const startup = topic.endsWith('/state') && Date.now() - (c._subAt || 0) < 3000;
+        try { this._in(JSON.parse(buf.toString()), 'relay', startup); } catch {}
+      });
       ['close', 'offline', 'error', 'reconnect'].forEach(ev => c.on(ev, () => this._status()));
       this.clients.push(c);
     }
@@ -207,7 +255,10 @@ PC.Link = class {
   sendState(st) {
     const obj = { k: 'state', from: this.id, st }, s = JSON.stringify(obj);
     try { this.bc && this.bc.postMessage(obj); } catch {}
-    for (const c of this.clients) try { c.publish(this.base + '/state', s, { retain: true, qos: 0 }); } catch {}
+    for (const c of this.clients) try {
+      c.publish(this.base + '/live', s, { qos: 0 });
+      c.publish(this.base + '/state', s, { retain: true, qos: 0 });
+    } catch {}
     this.last = s;
   }
   heartbeat(extra) { this._pub(this.base + '/hb/' + this.role, Object.assign({ k: 'hb', role: this.role, from: this.id, at: Date.now() }, extra || {})); }

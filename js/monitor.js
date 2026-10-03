@@ -169,7 +169,7 @@ function ecgAt(t) {
     }
   }
   for (const e of E.ev) { const d = t - e.t; if (d > -420 && d < 800) y += complex(e, d); }
-  if (S.cpr) y += 1.1 * cprArt(t);
+  if (S.cpr) y += 0.55 * cprArt(t);          // artefact visible, but the underlying rhythm still shows
   const ds = t - E.shockT;
   if (ds >= 0 && ds < 2600) y += ds < 70 ? 3.5 : -1.5 * Math.exp(-(ds - 70) / 320);
   return y;
@@ -189,16 +189,17 @@ function breathAt(t) {
   return null;
 }
 function co2At(t) {
-  if (!S.co2On) return 0;
+  if (!S.co2On || !S.intubated) return 0;      // capnography only once intubated
   const b = breathAt(t);
   if (!b) return 0;
   const u = t - b.t;
-  if (u < b.ti) return b.prevE * Math.exp(-u / 45);
+  const base = S.co2Shape === 'rebreath' ? 8 : 0;            // rebreathing: baseline never returns to 0
+  if (u < b.ti) return base + (b.prevE - base) * Math.exp(-u / 45);
   const x = u - b.ti, te = b.T - b.ti;
   const tau = S.co2Shape === 'obstructive' ? 0.35 * te : 55;
   const rise = 1 - Math.exp(-x / tau);
   const slope = S.co2Shape === 'obstructive' ? 1 : 0.93 + 0.07 * (x / te);
-  return b.E * rise * slope;
+  return base + (b.E - base) * rise * slope;
 }
 function respAt(t) {
   if (!S.leads) return 0;
@@ -314,7 +315,7 @@ function measuredHR(now) {
 const jit = (v, a) => v + (Math.random() - 0.5) * 2 * a;
 
 function computeNumbers(now) {
-  const L = PC.limits(S.pt.group), r = S.rhythm, p = perf();
+  const L = PC.limitsFor(S.pt), r = S.rhythm, p = perf();
   const o = {};
   // HR
   if (S.leads) {
@@ -335,7 +336,7 @@ function computeNumbers(now) {
   else o.sp = Math.round(clamp(jit(E.sp, 0.4), 0, 100));
   // EtCO2 + awRR
   o.co = null; o.aw = null;
-  if (S.co2On) {
+  if (S.co2On && S.intubated) {
     const done = E.br.filter(b => b.t + b.ti < now);
     const lb = done[done.length - 1];
     if (lb && now - lb.t < Math.max(15000, lb.T * 2.5)) {
@@ -423,6 +424,10 @@ function render(now) {
   set('vSP', o.sp == null ? '---' : o.sp);
   set('uSP', o.spMsg || '%');
   set('vCO', o.co == null ? '---' : o.co);
+  const coLab = S.intubated ? 'awRR' : 'Not intubated';
+  if (els.coLab.textContent !== coLab) { els.coLab.textContent = coLab; els.vAW.classList.toggle('hide', !S.intubated); }
+  const lab = S.intubated ? 'mmHg · 0–' + ((rows[2] && rows[2].hi > 60) ? 100 : 50) : 'not intubated';
+  if ($('#rCo .lab small').textContent !== lab) $('#rCo .lab small').textContent = lab;
   set('vAW', o.aw == null ? '--' : o.aw);
   set('vRR', o.rr == null ? '--' : o.rr);
   set('vTE', S.leads || S.probe ? o.temp.toFixed(1) : '--.-');
@@ -434,7 +439,7 @@ function render(now) {
   set('nbMode', S.nibpAuto ? 'Auto ' + S.nibpAuto + ' min' : 'Manual');
   // CO2 scale follows the value (0–50, or 0–100 when EtCO2 is high)
   const co2Hi = (o.co || 0) > 47 ? 104 : 52;
-  if (rows[2] && rows[2].hi !== co2Hi) { rows[2].hi = co2Hi; $('#rCo .lab small').textContent = 'mmHg · 0–' + (co2Hi > 60 ? 100 : 50); }
+  if (rows[2] && rows[2].hi !== co2Hi) rows[2].hi = co2Hi;
   // limits
   const L = o.L;
   els.limHR.innerHTML = L.hr[1] + '<br>' + L.hr[0];
@@ -553,6 +558,7 @@ function applyState(st, meta = {}) {
   }
   if (!S.cuff) N.state = N.state === 'meas' ? 'idle' : N.state;
   applyUI();
+  clearTimeout(Mon._hbT); if (Mon._hb) Mon._hbT = setTimeout(Mon._hb, 150);   // confirm receipt to the phone
 }
 
 /* ---------- main loop ---------- */
@@ -588,7 +594,7 @@ let link = null;
 Mon.start = code => {
   PC.$('#mon').classList.remove('hide');
   ['mPt', 'mBanner', 'mSil', 'mLink', 'mClock', 'vHR', 'uHR', 'vSP', 'uSP', 'vCO', 'vAW', 'vRR', 'vTE', 'vNB', 'vMAP', 'nbState', 'nbTime', 'nbMode',
-    'limHR', 'limSP', 'limCO', 'limRR', 'tHR', 'tSP', 'tCO', 'tRR', 'tNB', 'mFrozen', 'mReveal', 'mHeart', 'mCpr', 'mDeb'].forEach(id => els[id] = document.getElementById(id));
+    'coLab', 'limHR', 'limSP', 'limCO', 'limRR', 'tHR', 'tSP', 'tCO', 'tRR', 'tNB', 'mFrozen', 'mReveal', 'mHeart', 'mCpr', 'mDeb'].forEach(id => els[id] = document.getElementById(id));
   rows = [
     new Row($('#rEcg'), '--ecg', 5000, ecgAt, -1.1, 1.7, { marks: syncMarks }),
     new Row($('#rPl'), '--pleth', 5000, plethAt, -0.1, 1.25),
@@ -619,7 +625,7 @@ Mon.start = code => {
   });
   link.start();
   const hb = () => link.heartbeat({ gotT: lastT, gotFrom: lastFrom });
-  hb(); setInterval(hb, 4000);
+  hb(); setInterval(hb, 4000); Mon._hb = hb;
   applyUI();
   E.next = performance.now() + 200; E.nextBr = E.next;
   requestAnimationFrame(frame);

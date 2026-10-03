@@ -40,7 +40,8 @@ const ok = (c, msg) => { console.log((c ? 'PASS ' : 'FAIL ') + msg); if (!c) fai
   ok(al.includes('V-FIB'), 'VF alarm on monitor: ' + al.join(' | '));
   await mon.screenshot({ path: path.join(shots, '2-vf.png') });
 
-  // CPR on → HR shows compression rate, EtCO2 drifts to ~18
+  // intubate (EtCO2 only shows once intubated), then CPR on → HR shows compression rate, EtCO2 drifts to ~18
+  await ctl.click('#segIntub [data-v="1"]');
   await ctl.click('#bCPR');
   await wait(9000);
   let n = await mon.evaluate(() => PC.Monitor._debug.numbers());

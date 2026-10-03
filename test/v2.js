@@ -16,25 +16,25 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await fresh.goto(BASE);
   ok(await fresh.isVisible('#dGate'), 'disclaimer gate shows on first visit');
   ok(await fresh.isDisabled('#dgGo'), 'Continue disabled until the box is ticked');
-  ok((await fresh.textContent('#dGate .v')).includes('v0.4.1'), 'gate shows version');
+  ok((await fresh.textContent('#dGate .v')).includes('v0.5.0'), 'gate shows version');
   await fresh.check('#dgChk'); await fresh.click('#dgGo');
   ok(await fresh.isVisible('#chooser') && !(await fresh.isVisible('#dGate')), 'landing page after acknowledging');
   const land = await fresh.textContent('#chooser');
   ok(/What it is/.test(land) && /How to use it/.test(land) && /Disclaimer/.test(land), 'landing explains what it is, how to use, disclaimer');
   const legal = await fresh.$eval('#chooser .legal', e => ({ t: e.textContent, align: getComputedStyle(e).textAlign }));
   ok(/Not for reuse or redistribution without written permission\. · About · Privacy/.test(legal.t) && legal.align === 'center', 'centred legal footer: ' + legal.t.replace(/\s+/g, ' '));
-  ok(/v0\.4\.1/.test(legal.t), 'version in footer');
+  ok(/v0\.5\.0/.test(legal.t), 'version in footer');
   await fresh.screenshot({ path: path.join(shots, 'v2-landing.png'), fullPage: true });
   await fresh.reload();
   ok(!(await fresh.isVisible('#dGate')), 'gate not shown again on this device');
   await fresh.goto(BASE.split('?')[0] + 'about.html');
-  ok(/v0\.4\.1/.test(await fresh.textContent('main')) && /not affiliated/.test(await fresh.textContent('main')), 'About page with version and disclaimer');
+  ok(/v0\.5\.0/.test(await fresh.textContent('main')) && /not affiliated/.test(await fresh.textContent('main')), 'About page with version and disclaimer');
 
   // 2. paired session
   const mk = async (vp) => { const c = await b.newContext({ viewport: vp }); await c.addInitScript(() => localStorage.setItem('pals-disclaimer-ack-v1', '1')); const p = await c.newPage(); p.on('pageerror', e => errs.push(e.message)); return p; };
   const mon = await mk({ width: 1280, height: 720 }), ctl = await mk({ width: 390, height: 844 });
   await mon.goto(BASE + '#monitor=VTWX'); await mon.click('#mGo');
-  ok(/v0\.4\.1/.test(await mon.textContent('#mFoot')), 'monitor footer shows version');
+  ok(/v0\.5\.0/.test(await mon.textContent('#mFoot')), 'monitor footer shows version');
   await ctl.goto(BASE + '#control=VTWX');
   await ctl.waitForFunction(() => /Monitor online/.test(document.querySelector('#cStat').textContent), null, { timeout: 15000 });
   // VF scenario, run like a team would

@@ -19,7 +19,7 @@ let ev = saved.ev || [];          // structured events for the debrief (snapshot
 let snap = saved.snap || null;    // last perfusion/CPR/shockable snapshot
 let active = saved.active || {};  // surprise complications still in effect
 let tab = saved.tab || 'tabLive';
-let link = null, monSeenAt = 0, otherCtl = false, linkStat = { relays: 0, of: 0, local: false };
+let link = null, monSeenAt = 0, otherCtl = false, monHb = null, linkStat = { relays: 0, of: 0, local: false };
 let scList = !sc.id;
 
 const save = () => PC.store.set(KEY, { S, ramp, energyKey, log, T, sc, code, tab, ev, snap, active });
@@ -102,7 +102,8 @@ function setRhythm(key) {
   if (key === 'sinus' && S.v.hr < 40) want = norm.hr;
   if (key === 'pea' && (S.v.hr < 20 || S.v.hr > 160)) want = 60;
   if (want != null) { S.v.hr = want; staged.hr = want; S.vt = Date.now(); S.ramp = 0; }
-  if (!r.arrest && r.pulse && S.v.sbp < 40) { S.v.sbp = norm.sbp; S.v.dbp = norm.dbp; staged.sbp = norm.sbp; staged.dbp = norm.dbp; S.vt = Date.now(); S.ramp = 0; }
+  if (S.autoBp) autoBp(0);
+  else if (!r.arrest && r.pulse && S.v.sbp < 40) { S.v.sbp = norm.sbp; S.v.dbp = norm.dbp; staged.sbp = norm.sbp; staged.dbp = norm.dbp; S.vt = Date.now(); S.ramp = 0; }
   addLog('Rhythm → ' + PC.rhythmName(S), 'rhythm');
   send();
 }
@@ -135,6 +136,48 @@ function rosc() {
   send();
 }
 
+/* ---------- patient age, automatic BP, capnography ---------- */
+function ageInputMonths() {
+  const n = parseFloat($('#ptAgeN').value); if (isNaN(n) || n < 0) return null;
+  const u = ($('#ptAgeU .on') || {}).dataset ? $('#ptAgeU .on').dataset.v : 'y';
+  return u === 'd' ? n / 30 : u === 'mo' ? n : n * 12;
+}
+let ageUnitTouched = false;
+function setPatientAge() {
+  ageUnitTouched = false;
+  const mo = ageInputMonths(); if (mo == null) return PC.toast('Enter the age');
+  const u = $('#ptAgeU .on').dataset.v, n = parseFloat($('#ptAgeN').value);
+  const w = parseFloat($('#ptWt').value);
+  S.pt = Object.assign({}, S.pt, { age: n + (u === 'd' ? ' d' : u === 'mo' ? ' mo' : ' y'), ageM: mo, group: PC.groupFor(mo), wt: isNaN(w) ? PC.estWeight(mo) : clamp(w, 0.5, 150) });
+  autoBp(0);
+  addLog(`Patient: ${S.pt.age}, ${S.pt.wt} kg`); send(); renderDoses(); PC.toast('Patient updated: limits for ' + (PC.AGE[S.pt.group] || {}).label);
+}
+/* With "auto BP" on, set the BP expected for the age and current rhythm. */
+function autoBp(rampMs) {
+  if (!S.autoBp) return;
+  const bp = PC.bpFor(S.pt, S.rhythm, S.pulse, S.v.hr);
+  if (bp.sbp === S.v.sbp && bp.dbp === S.v.dbp) return;
+  S.v = Object.assign({}, S.v, bp); staged = { ...S.v }; S.vt = Date.now(); S.ramp = rampMs || 0;
+}
+const CAPNO = [
+  ['normal', 'Normal', 'square waves, 35–45'], ['shark', 'Bronchospasm', 'shark-fin'], ['hyper', 'Hyperventilation', 'fast, EtCO₂ ~25'],
+  ['hypo', 'Hypoventilation', 'slow, EtCO₂ ~60'], ['rebreath', 'Rebreathing', 'baseline above 0'], ['kink', 'Tube kinked / partial block', 'low, sloping'],
+  ['dislodged', 'Tube dislodged', 'flat line'],
+];
+function capno(k) {
+  if (!S.intubated) return PC.toast('Set the airway to Intubated first');
+  const g = age(), n = g.norm, name = (CAPNO.find(x => x[0] === k) || [])[1];
+  if (k === 'dislodged') return surprise('tube');
+  if (S.noVent) { S.noVent = false; delete active.tube; }
+  const map = {
+    normal: ['normal', { etco2: 38, rr: n.rr }], shark: ['obstructive', { etco2: 48, spo2: Math.min(S.v.spo2, 90) }],
+    hyper: ['normal', { etco2: 25, rr: Math.round(g.rr[1] * 1.3) }], hypo: ['normal', { etco2: 60, rr: Math.max(6, Math.round(g.rr[0] * 0.5)) }],
+    rebreath: ['rebreath', { etco2: 46 }], kink: ['obstructive', { etco2: 18, spo2: Math.min(S.v.spo2, 88) }],
+  }[k];
+  S.co2Shape = map[0]; setVitals(map[1], 15000);
+  addLog('Capnography: ' + name, 'resp'); send(); PC.toast(name);
+}
+
 /* ---------- drugs, team events, quick actions, surprises ---------- */
 const EVENTS = [
   { key: 'adr', label: 'Adrenaline', drug: 'adr' },
@@ -159,8 +202,6 @@ function logEvent(key) {
   mark('event', { key });
   addLog('✚ ' + e.label, 'event'); PC.toast(e.label + ' logged'); renderTimers();
 }
-const QUICK = [['vf', 'VF', 'red'], ['pvt', 'pVT', 'red'], ['pea', 'PEA', 'red'], ['asys', 'Asystole', 'red'],
-  ['brady', 'Brady', ''], ['svt', 'SVT', ''], ['hypox', 'Hypoxia', ''], ['rosc', 'ROSC', 'pri']];
 function quick(k) {
   if (['vf', 'pvt', 'pea', 'asys', 'svt'].includes(k)) return setRhythm(k);
   if (k === 'rosc') return rosc();
@@ -169,7 +210,8 @@ function quick(k) {
     S.rhythm = 'sinus'; S.pulse = true;
     const p = { hr: Math.max(35, Math.round(g.hr[0] * 0.6)) };
     if (S.v.sbp < 40) Object.assign(p, { sbp: Math.round(n.sbp * 0.8), dbp: Math.round(n.dbp * 0.8) });
-    setVitals(p, 10000); addLog('Bradycardia: HR ' + S.v.hr, 'rhythm');
+    setVitals(p, 10000); if (S.autoBp) { const bp = PC.bpFor(S.pt, S.rhythm, S.pulse, S.v.hr); Object.assign(S.v, bp); staged = { ...S.v }; }
+    addLog('Bradycardia: HR ' + S.v.hr, 'rhythm');
   }
   if (k === 'hypox') {
     setVitals({ spo2: 80, hr: Math.round(Math.min(g.hr[1] * 1.15, Math.max(S.v.hr, n.hr) * 1.2)) }, 20000);
@@ -229,6 +271,8 @@ function surprise(key) {
     case 'desat': setVitals({ spo2: 82 }, 20000); break;
     case 'ptx': setVitals({ spo2: 78, sbp: g.sbpLow - 10, dbp: Math.round((g.sbpLow - 10) * 0.55), hr: Math.round(Math.max(S.v.hr, n.hr) * 1.2) }, 20000); break;
   }
+  if (['revf', 'repea', 'brady', 'svt'].includes(key) && S.autoBp) { const bp = PC.bpFor(S.pt, S.rhythm, S.pulse, S.v.hr); Object.assign(S.v, bp); staged = { ...S.v }; S.vt = Date.now(); }
+  if (key === 'tube' && !S.intubated) { S.intubated = true; }
   mark('surprise', { key });
   addLog('⚡ Surprise: ' + x.label, 'surprise');
   send(); PC.toast('Surprise: ' + x.label);
@@ -304,23 +348,42 @@ function segHTML(id, opts, cur) {
 }
 function buildLive() {
   $('#tabLive').innerHTML = `
-  <div class="card"><h3>On the monitor now <span class="note" id="linkNote"></span></h3><div class="live" id="liveNow"></div></div>
-  <div class="card"><h3>Quick actions <span class="note">one tap, instant</span></h3>
-    <div class="qa" id="qaRh">${QUICK.map(([k, l, c]) => `<button class="chip ${c === 'red' ? 'red' : ''}" data-q="${k}" ${c === 'pri' ? 'style="border-color:var(--ok)"' : ''}>${l}</button>`).join('')}</div>
-    <div class="note" style="margin:10px 0 6px">Team did… (logged for the debrief)</div>
-    <div class="qa ev" id="qaEv">${EVENTS.map(e => `<button class="chip" data-ev="${e.key}">${e.label}</button>`).join('')}</div>
+  <div class="card"><h3>On the monitor now <span class="note" id="linkNote"></span></h3><div class="live" id="liveNow"></div>
+    <div class="rowf" style="margin-top:10px;gap:6px">
+      <span class="note">Age</span><input id="ptAgeN" inputmode="decimal" style="width:64px;padding:8px;border-radius:10px;border:1px solid var(--line);background:var(--bg)">
+      ${segHTML('ptAgeU', [['d', 'days'], ['mo', 'months'], ['y', 'years']], 'y')}
+      <span class="note">Wt</span><input id="ptWt" inputmode="decimal" style="width:58px;padding:8px;border-radius:10px;border:1px solid var(--line);background:var(--bg)"><span class="note">kg</span>
+      <button class="btn pri" id="bPtSet">Set</button>
+    </div>
+    <div class="note" id="ptLim" style="margin-top:6px"></div>
   </div>
-  <div class="card"><h3>🫁 Breathing <span class="note">RR, SpO₂, EtCO₂ drift together</span></h3>
+
+  <div class="card"><h3>🫀 1 · Rhythm <span class="note">tap = on the monitor at once</span></h3>
+    <div class="chips" id="rhChips">${
+      PC.RHYTHMS.map(r => `<button class="chip${r.arrest ? ' red' : ''}" data-rh="${r.key}">${esc(r.label)}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</button>`).join('')}
+      <button class="chip" data-q="brady">Sinus brady<small>HR for age × 0.6</small></button>
+      <button class="chip" data-q="rosc" style="border-color:var(--ok)">✅ ROSC<small>pulse back</small></button>
+    </div>
+    <div class="rowf" style="margin-top:8px"><span class="note grow">BP follows the rhythm automatically</span><button class="sw" id="swAutoBp" aria-label="Automatic BP"></button></div>
+  </div>
+
+  <div class="card"><h3>🫁 2 · Breathing <span class="note">RR, SpO₂, EtCO₂ drift together</span></h3>
+    <div class="rowf" style="margin-bottom:10px"><span class="note">Airway</span>${segHTML('segIntub', [['0', 'Not intubated'], ['1', 'Intubated (EtCO₂ on)']], S.intubated ? '1' : '0')}</div>
     <div class="qa ev" id="qaResp">${RESP.map(([k, l]) => `<button class="chip" data-resp="${k}">${l}</button>`).join('')}</div>
+    <div id="capnoBox">
+      <div class="note" style="margin:12px 0 6px"><b>Capnography scenarios</b> (waveform on the monitor)</div>
+      <div class="qa ev" id="qaCapno">${CAPNO.map(([k, l, sub]) => `<button class="chip" data-capno="${k}">${l}<small>${sub}</small></button>`).join('')}</div>
+    </div>
+    <div class="note" id="capnoOff" style="margin-top:10px">EtCO₂ and the capnogram appear only after you set <b>Intubated</b>.</div>
   </div>
-  <div class="card"><h3>🫀 Cardiac arrest <span class="note">mirror what the team does, top to bottom</span></h3>
+
+  <div class="card"><h3>⚡ 3 · Shock & CPR <span class="note">mirror what the team does</span></h3>
     <div class="step"><div class="sn">1</div><div class="sb">
       <b>Chest compressions</b>
-      <span class="note">Tap <b>Start</b> when the team starts compressions and <b>Pause</b> for each pulse / rhythm check. The monitor then shows compression artefact, counts compressions as HR, and times the 2-minute cycle.</span>
       <button class="btn big" id="bCPR" style="width:100%"></button>
       <span class="note" id="cycleNote"></span>
-      <div class="rowf"><span class="note">How good is their CPR?</span>${segHTML('segQ', [['good', '👍 Good'], ['poor', '👎 Poor']], S.cprQ)}</div>
-      <span class="note">Good: rate ≈ 110, EtCO₂ ≈ 18. Poor: slow and shallow, EtCO₂ ≈ 8.</span>
+      <div class="rowf"><span class="note">CPR quality</span>${segHTML('segQ', [['good', '👍 Good'], ['poor', '👎 Poor']], S.cprQ)}</div>
+      <span class="note">Start when they start compressions, pause for each pulse / rhythm check. During CPR the monitor shows compression artefact over the rhythm and counts compressions as HR.</span>
     </div></div>
     <div class="step"><div class="sn">2</div><div class="sb">
       <b>Defibrillator</b>
@@ -328,14 +391,17 @@ function buildLive() {
       <span class="note" id="enNote"></span>
       <div class="chips" id="enChips"></div>
       <button class="btn red big" id="bShock" style="width:100%"></button>
-      <span class="note">Press when the team delivers the shock: the monitor shows the shock artefact. Then choose the rhythm that follows.</span>
+      <span class="note">Press when the team delivers the shock, then tap the rhythm that follows (section 1).</span>
     </div></div>
     <div class="step"><div class="sn">3</div><div class="sb">
       <b>Outcome</b>
       <button class="btn big" id="bROSC" style="width:100%;border-color:var(--ok)">✅ ROSC: pulse is back</button>
-      <span class="note">Stops CPR, sets sinus rhythm with a pulse; EtCO₂ jumps, SpO₂ and BP come back. Still in arrest? Pick the next rhythm in <b>Quick actions</b>.</span>
     </div></div>
     <div class="rowf" style="margin-top:6px"><button class="btn grow" id="bNIBP">Measure BP now</button><button class="btn grow" id="bSil">Silence alarms 2 min</button></div>
+  </div>
+
+  <div class="card"><h3>Team did… <span class="note">logged for the debrief</span></h3>
+    <div class="qa ev" id="qaEv">${EVENTS.map(e => `<button class="chip" data-ev="${e.key}">${e.label}</button>`).join('')}</div>
   </div>
   <div class="card"><h3>⚡ Surprise <span class="note">instant complications</span></h3>
     <button class="btn purple big" id="bSurp" style="width:100%">⚡ Random surprise</button>
@@ -344,15 +410,13 @@ function buildLive() {
       <div class="sheet" id="surpList" style="margin-top:8px">${SURPRISES.map(x => `<button class="chip purple" data-surp="${x.key}">${x.label}${x.sub ? `<small>${x.sub}</small>` : ''}</button>`).join('')}</div>
     </details>
   </div>
-  <div class="card"><h3>Vitals <span class="note">staged until Apply</span></h3>
+  <div class="card"><h3>Vitals (fine-tune) <span class="note">staged until Apply</span></h3>
     ${VIT.map(x => `<div class="vit" data-k="${x.k}"><label>${x.l}</label><button data-d="-1" aria-label="${x.l} down">−</button><input inputmode="decimal" id="in_${x.k}"><button data-d="1" aria-label="${x.l} up">+</button><span class="cur" id="cur_${x.k}"></span></div>`).join('')}
     <div style="margin:10px 0 6px" class="note">Drift over</div>
     ${segHTML('segRamp', RAMPS, ramp)}
     <div class="rowf" style="margin-top:10px"><button class="btn pri big grow" id="bApply">Apply vitals</button><button class="btn" id="bRevert">Revert</button></div>
     <div class="rowf" style="margin-top:10px"><span class="note">Stage preset:</span><button class="btn" data-pre="norm">Normal for age</button><button class="btn" data-pre="hypox">Hypoxia</button><button class="btn" data-pre="shock">Hypotension</button></div>
-  </div>
-  <div class="card"><h3>All rhythms <span class="note">applies instantly</span></h3><div class="chips" id="rhChips">${
-    PC.RHYTHMS.map(r => `<button class="chip${r.arrest ? ' red' : ''}" data-rh="${r.key}">${esc(r.label)}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</button>`).join('')}</div></div>`;
+  </div>`;
   $('#bCPR').onclick = toggleCPR;
   $('#segQ').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.cprQ = b.dataset.v; addLog('CPR quality: ' + S.cprQ); send(); };
   $('#segMode').onclick = e => { const b = e.target.closest('button'); if (!b) return; const v = b.dataset.v === 'sync'; if (v === S.sync) return; S.sync = v; addLog(v ? 'Sync cardioversion mode' : 'Defibrillation mode'); send(); };
@@ -362,7 +426,17 @@ function buildLive() {
   $('#bNIBP').onclick = () => { S.nibpAt = Date.now(); addLog('NIBP measurement'); send(); };
   $('#bSil').onclick = () => { S.silenceAt = Date.now(); send(); PC.toast('Alarms silenced for 2 min'); };
   $('#rhChips').onclick = e => { const b = e.target.closest('[data-rh]'); if (b) setRhythm(b.dataset.rh); };
-  $('#qaRh').onclick = e => { const b = e.target.closest('[data-q]'); if (b) quick(b.dataset.q); };
+  $('#rhChips').addEventListener('click', e => { const b = e.target.closest('[data-q]'); if (b) quick(b.dataset.q); });
+  $('#swAutoBp').onclick = () => { S.autoBp = !S.autoBp; if (S.autoBp) autoBp(0); addLog('Auto BP ' + (S.autoBp ? 'on' : 'off')); send(); };
+  $('#segIntub').onclick = e => { const b = e.target.closest('button'); if (!b) return; const v = b.dataset.v === '1'; if (v === S.intubated) return;
+    S.intubated = v; if (!v) { S.noVent = false; delete active.tube; }
+    addLog(v ? 'Intubated: capnography connected' : 'Not intubated: capnography off', 'event'); mark('event', { key: v ? 'intubated' : 'extubated' }); send(); };
+  $('#qaCapno').onclick = e => { const b = e.target.closest('[data-capno]'); if (b) capno(b.dataset.capno); };
+  $('#bPtSet').onclick = setPatientAge;
+  const estWt = () => { const mo = ageInputMonths(); if (mo != null) $('#ptWt').value = PC.estWeight(mo); };
+  $('#ptAgeN').oninput = estWt;
+  $('#ptAgeU').onclick = e => { const b = e.target.closest('button'); if (!b) return; ageUnitTouched = true;
+    $$('#ptAgeU button').forEach(x => x.classList.toggle('on', x === b)); estWt(); };
   $('#qaResp').onclick = e => { const b = e.target.closest('[data-resp]'); if (b) resp(b.dataset.resp); };
   $('#qaEv').onclick = e => { const b = e.target.closest('[data-ev]'); if (b) logEvent(b.dataset.ev); };
   $('#bSurp').onclick = randomSurprise;
@@ -410,7 +484,19 @@ function renderLive() {
   $('#enNote').innerHTML = (S.sync ? '<b>Sync cardioversion</b> for SVT / VT <b>with a pulse</b>; sync markers appear on each R wave.' : '<b>Defibrillation</b> for VF / pulseless VT.') + ` Energy for ${esc(S.pt.wt)} kg:`;
   $('#bShock').textContent = `⚡ ${S.sync ? 'Cardiovert' : 'Shock'} ${PC.joules(e.per, wt())} J`;
   $$('#rhChips .chip').forEach(c => c.classList.toggle('on', c.dataset.rh === PC.rhythmKey(S)));
-  $$('#qaRh .chip').forEach(c => c.classList.toggle('on', c.dataset.q === PC.rhythmKey(S)));
+  $('#swAutoBp').classList.toggle('on', !!S.autoBp);
+  $$('#segIntub button').forEach(x => x.classList.toggle('on', (x.dataset.v === '1') === !!S.intubated));
+  $('#capnoBox').classList.toggle('hide', !S.intubated); $('#capnoOff').classList.toggle('hide', !!S.intubated);
+  const L = PC.limitsFor(S.pt);
+  $('#ptLim').innerHTML = `<b>${esc(S.pt.age)} · ${esc(S.pt.wt)} kg</b> · ${esc((PC.AGE[L.group] || {}).label || '')} · alarm limits: HR ${L.hr[0]}–${L.hr[1]}, RR ${L.rr[0]}–${L.rr[1]}, SBP &lt; ${L.sbpLow}, SpO₂ &lt; 90`;
+  if (!ageUnitTouched && document.activeElement !== $('#ptAgeN') && document.activeElement !== $('#ptWt')) {
+    const mo = PC.ageMonths(S.pt);
+    if (mo != null) {
+      const u = mo < 1 ? 'd' : mo < 24 ? 'mo' : 'y', n = u === 'd' ? Math.round(mo * 30) : u === 'mo' ? Math.round(mo * 10) / 10 : Math.round(mo / 12 * 10) / 10;
+      $('#ptAgeN').value = n; $$('#ptAgeU button').forEach(x => x.classList.toggle('on', x.dataset.v === u));
+    }
+    $('#ptWt').value = S.pt.wt;
+  }
   const act = Object.keys(active);
   $('#surpActive').innerHTML = act.length ? `<div class="note" style="margin:10px 0 6px">Active, tap when the team fixes it:</div><div class="rowf">${
     act.map(k => { const x = SURPRISES.find(s => s.key === k); return `<button class="btn" data-fix="${k}">✔ ${esc(x.fix)}</button>`; }).join('')}</div>` : '';
@@ -696,7 +782,7 @@ function buildSetup() {
       <label class="fld">Weight (kg)<input id="pWt" inputmode="decimal" value="${esc(g.wt)}"></label>
       <label class="fld">Bed label<input id="pBed" value="${esc(g.bed)}"></label>
     </div>
-    <p class="note">Age group sets the monitor's alarm limits. Weight drives doses and joules. Simulated details only.</p>
+    <p class="note">Alarm limits follow the age you type (e.g. "9 mo", "4 y"); the age group is only used if the age can't be read. Weight drives doses and joules. Simulated details only.</p>
     <button class="btn pri" id="bPt" style="width:100%">Update patient</button></div>
   <div class="card"><h3>Sensors on the patient</h3>
     ${[['leads', 'ECG leads'], ['probe', 'SpO₂ probe'], ['co2On', 'Capnography line'], ['cuff', 'BP cuff']].map(([k, l]) => `<div class="tog"><span>${l}</span><button class="sw" data-sw="${k}"></button></div>`).join('')}
@@ -719,7 +805,8 @@ function buildSetup() {
   $('#bRepair').onclick = () => { if (confirm('Disconnect from this monitor and pair a different code?')) showPair(); };
   $('#bPt').onclick = () => {
     const w = parseFloat($('#pWt').value);
-    S.pt = { group: $('#pGroup').value, age: $('#pAge').value.trim().slice(0, 20), wt: isNaN(w) ? S.pt.wt : clamp(w, 0.5, 150), bed: $('#pBed').value.trim().slice(0, 24) };
+    const ageTxt = $('#pAge').value.trim().slice(0, 20), mo = PC.parseAge(ageTxt);
+    S.pt = { group: mo != null ? PC.groupFor(mo) : $('#pGroup').value, age: ageTxt, ageM: mo, wt: isNaN(w) ? S.pt.wt : clamp(w, 0.5, 150), bed: $('#pBed').value.trim().slice(0, 24) };
     addLog(`Patient: ${S.pt.age}, ${S.pt.wt} kg`); send(); renderDoses(); PC.toast('Patient updated');
   };
   $('#tabSetup').addEventListener('click', e => {
@@ -757,7 +844,8 @@ function renderSetup(full) {
 function renderStatus() {
   const on = Date.now() - monSeenAt < 12000;
   const pill = $('#cStat');
-  const lbl = !code ? 'Not paired' : !on ? 'Waiting for monitor' : otherCtl ? 'Another device in control' : 'Monitor online';
+  const synced = monHb && monHb.gotFrom === (link && link.id) && (monHb.gotT || 0) >= (S.t || 0);
+  const lbl = !code ? 'Not paired' : !on ? 'Waiting for monitor' : otherCtl ? 'Another device in control' : synced ? 'Monitor online ✓' : 'Monitor online · updating…';
   pill.innerHTML = `<span class="dot ${on && !otherCtl ? 'on' : code ? 'wait' : ''}"></span><span>${lbl}</span>`;
   $('#cCode').textContent = code || '----';
   const txt = `Relay ${linkStat.relays}/${linkStat.of}${linkStat.local ? ' · same-device ✓' : ''}`;
@@ -776,7 +864,7 @@ function connect(c) {
       if (fresh) PC.toast('Monitor connected');
       // Resend if the monitor has nothing yet, or missed one of our updates. If another instructor
       // device took over, don't fight it: show a notice; our next action takes control back.
-      otherCtl = !!m.gotFrom && m.gotFrom !== link.id;
+      otherCtl = !!m.gotFrom && m.gotFrom !== link.id; monHb = m;
       if (!m.gotFrom || (!otherCtl && (m.gotT || 0) < (S.t || 0))) link.sendState(S);
       renderStatus();
     },

@@ -34,7 +34,7 @@ Dr Radhika Raman, Senior Consultant, KKCTH.
 Bump in ALL places, keep in sync:
 1. `PC.VERSION` in `js/core.js` (shown on the chooser and in Setup → About)
 2. `CACHE` in `sw.js` (`'pals-vX.Y.Z'`) — this is what pushes updates to installed users; never skip it.
-Small change → patch; new feature → minor. Current: **v0.4.1**. The version shows on the landing footer, disclaimer gate, monitor footer,
+Small change → patch; new feature → minor. Current: **v0.5.0**. The version shows on the landing footer, disclaimer gate, monitor footer,
 instructor footer, About and Privacy (all read `PC.VERSION`).
 
 ## Attribution on commits
@@ -51,8 +51,11 @@ in code, PRs or docs. Do NOT open a PR unless asked.
   *changes* (never on the first state after load, so a reload does not replay a shock). Device clocks are never compared.
   A new `vt` starts a local ramp from the current set values.
 - **Link (`PC.Link`)**: 4-char code (no I/O/0/1). BroadcastChannel `pals-<CODE>` for same-device windows, plus MQTT over
-  WSS to `broker.hivemq.com:8884` and `broker.emqx.io:8084`, topic `pediaos-pals-v1/<CODE>/state` (retained) and
-  `/hb/mon|ctl` heartbeats every 4 s. The monitor's heartbeat carries `gotT`; the controller resends if the monitor is behind.
+  WSS to `broker.hivemq.com:8884` and `broker.emqx.io:8084`. Each state is published to `pediaos-pals-v1/<CODE>/live`
+  (normal) and `/state` (retained). A `/state` copy counts as a start-up copy only within 3 s of subscribing — never
+  rely on the broker's retain flag (some brokers flag live messages as retained; before v0.5 that froze the monitor
+  after the first state). `/hb/mon|ctl` heartbeats every 4 s; the monitor also answers right after each state, and the
+  phone pill shows "Monitor online ✓" once the monitor has the latest state. The monitor's heartbeat carries `gotT`; the controller resends if the monitor is behind.
   URL hooks: `?mqtt=ws://127.0.0.1:8888` (comma list overrides brokers), `?mqtt=off`.
 - **Monitor engine:** beat scheduler per rhythm (sinus, SVT, 1°, Mobitz I/II, 3° AVB with independent P waves, VT);
   VF/torsades/asystole are continuous functions. Pleth pulse 170 ms after each perfusing QRS. Breath scheduler drives
@@ -77,8 +80,15 @@ in code, PRs or docs. Do NOT open a PR unless asked.
   (monitor ✕ Exit top-right, Back on the monitor start overlay, Back on the pair screen, Setup → Back to start).
 - **NIBP:** the controller's `send()` triggers a cuff reading whenever BP targets or perfusion change (stages, ROSC,
   arrest, surprises, manual edits) via `nibpAfter(ramp)`; the monitor pre-fills a BP on its first state.
-- **Live tab order:** Quick actions (rhythms + team events) → 🫁 Breathing states (`resp()`) → 🫀 Cardiac arrest
-  steps (1 compressions, 2 defibrillator with Defibrillate / Sync segment, 3 ROSC) → ⚡ Surprise → Vitals → All rhythms.
+- **Live tab order:** status + patient age/weight → 🫀 1 Rhythm (all rhythms + sinus brady + ROSC, instant) →
+  🫁 2 Breathing (airway switch, `resp()` states, capnography) → ⚡ 3 Shock & CPR → Team did → Surprise → Vitals.
+- **Age & limits:** `PC.parseAge`, `PC.groupFor`, `PC.estWeight` (APLS-style), `PC.sbpLowFor` (PALS hypotension),
+  `PC.limitsFor(pt)` (monitor alarms). Live tab top row: age number + days/months/years + weight → Set.
+- **Auto BP** (`S.autoBp`, default on): `PC.bpFor(pt, rhythm, pulse, hr)` sets BP for age and rhythm on rhythm changes.
+- **Intubation:** `S.intubated` (default false). EtCO₂ value and capnogram only when intubated; Live → Breathing has
+  the Airway switch and capnography scenarios (normal, shark-fin, hyper/hypoventilation, rebreathing `co2Shape:'rebreath'`,
+  kinked tube, dislodged = `noVent`). Core cases with an ETT set `intubated: true`.
+- **Service worker** is network-first (cache only when offline) so phone and monitor always run the same version.
 - **Disclaimer gate** `#dGate`: once per device, `localStorage pals-disclaimer-ack-v1`. Never gate per session.
 
 ## Constraints (keep these)
@@ -94,6 +104,8 @@ Browser checks (Playwright + pre-installed Chromium):
 ```bash
 cd test && npm install && node servers.js &   # MQTT-over-WS broker :8888 + static app server :8080
 node sync.js     # two isolated browsers paired via relay: VF alarm, CPR HR/EtCO2, shock, ROSC, vitals, scenario, leads off
+node retain.js   # broker that flags every message retained: rhythms must still reach the monitor
+node v5.js       # layout order, age → weight/limits, auto BP, EtCO₂ only when intubated, capnography, sync tick
 node v4.js       # core cases: settings, findings, identify/intervene ticks, result card, debrief split
 node v3.js       # credits, start screen, Exit/Back, BP follows stages/ROSC/arrest, breathing, arrest panel
 node v2.js       # gate, landing/footer/version, quick actions, surprise (tube), exam mode, CPR panel, debrief
@@ -101,7 +113,8 @@ node robust.js   # clock skew between devices, phone wake-up, two instructor scr
 node local.js    # one device, pop-up monitor via BroadcastChannel: NIBP, alarms, themes, reload doesn't replay shock
 node icons.js    # re-render icon PNGs from icon.svg
 ```
-Screenshots land in `test/shots/` (git-ignored).
+Screenshots land in `test/shots/` (git-ignored). To stop the test servers don't use `pkill -f "node servers.js"`
+(it matches its own shell); kill the node PID instead.
 
 ## Open items (remind the owner until done)
 - [ ] Check IAP permission for publishing the core cases.
