@@ -101,6 +101,10 @@ function setRhythm(key) {
   if (r.hr && (S.v.hr < r.hr[0] || S.v.hr > r.hr[1])) want = r.hr[2];
   if (key === 'sinus' && S.v.hr < 40) want = norm.hr;
   if (key === 'pea' && (S.v.hr < 20 || S.v.hr > 160)) want = 60;
+  if (key === 'svt') {                       // SVT: infants usually > 220, children > 180
+    const inf = ['neo', 'infant'].includes(PC.limitsFor(S.pt).group), svt = inf ? 260 : 230;
+    if (S.v.hr < svt - 20) want = svt;
+  }
   if (want != null) { S.v.hr = want; staged.hr = want; S.vt = Date.now(); S.ramp = 0; }
   if (S.autoBp) autoBp(0);
   else if (!r.arrest && r.pulse && S.v.sbp < 40) { S.v.sbp = norm.sbp; S.v.dbp = norm.dbp; staged.sbp = norm.sbp; staged.dbp = norm.dbp; S.vt = Date.now(); S.ramp = 0; }
