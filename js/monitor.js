@@ -156,22 +156,29 @@ function cprArt(t) {
   const ph = (((t - E.cprT0) / 1000) * f) % 1;
   return (q ? 1 : 0.55) * (Math.pow(Math.sin(Math.PI * ph), 2) - 0.35);
 }
+/* Compression artefact on the ECG: one short bump per compression on a flat baseline,
+   so the trace stays on its line and the underlying rhythm remains readable. */
+function ecgCprArt(t) {
+  const q = S.cprQ === 'good', f = (q ? S.cprRate || 110 : 88) / 60;
+  const ph = (((t - E.cprT0) / 1000) * f) % 1;
+  return ph < 0.3 ? (q ? 0.35 : 0.2) * Math.pow(Math.sin(Math.PI * ph / 0.3), 2) : 0;
+}
 function ecgAt(t) {
   if (!S.leads) return 0;
-  let y = 0.03 * Math.sin(t * 0.0013) + (Math.random() - 0.5) * 0.014;
+  let y = 0;                                   // flat isoelectric baseline: no wander, no noise
   const s = t / 1000;
   if (t >= E.stunUntil) {
     switch (S.rhythm) {
       case 'vf': y += vf(s, 1); break;
       case 'vffine': y += vf(s, 0.25); break;
       case 'torsades': y += 1.15 * Math.sin(Math.PI * s / 1.7) * Math.sin(2 * Math.PI * 4.3 * s) + 0.08 * Math.sin(2 * Math.PI * 8.6 * s); break;
-      case 'asystole': y += 0.02 * Math.sin(s * 1.9); break;
+      case 'asystole': break;
     }
   }
   for (const e of E.ev) { const d = t - e.t; if (d > -420 && d < 800) y += complex(e, d); }
-  if (S.cpr) y += 0.55 * cprArt(t);          // artefact visible, but the underlying rhythm still shows
+  if (S.cpr) y += ecgCprArt(t);
   const ds = t - E.shockT;
-  if (ds >= 0 && ds < 2600) y += ds < 70 ? 3.5 : -1.5 * Math.exp(-(ds - 70) / 320);
+  if (ds >= 0 && ds < 1200) y += ds < 70 ? 3.5 : -1.2 * Math.exp(-(ds - 70) / 120);   // brief spike, quick return to baseline
   return y;
 }
 function plethAt(t) {

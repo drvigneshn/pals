@@ -3,7 +3,7 @@
 (() => {
 'use strict';
 const PC = window.PC = {};
-PC.VERSION = 'v0.5.0';
+PC.VERSION = 'v0.5.1';
 
 /* ---------- small helpers ---------- */
 PC.$ = (s, r = document) => r.querySelector(s);

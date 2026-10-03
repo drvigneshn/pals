@@ -1,7 +1,7 @@
 /* PALS Companion service worker — offline cache.
    Bump CACHE on every release. Same-origin files are fetched from the network first (so phone and
    monitor always run the same, latest version) and fall back to the cache when offline. */
-const CACHE = 'pals-v0.5.0';
+const CACHE = 'pals-v0.5.1';
 const ASSETS = ['./', 'index.html', 'privacy.html', 'about.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'lib/mqtt.min.js', 'lib/qrcode.js', 'js/core.js', 'js/scenarios.js', 'js/corecases.js', 'js/monitor.js', 'js/controller.js'];
 
