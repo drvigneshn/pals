@@ -1,6 +1,6 @@
 /* PALS Companion service worker — offline cache.
    Bump CACHE on every release: that is what pushes the update to installed users. */
-const CACHE = 'pals-v0.4.0';
+const CACHE = 'pals-v0.4.1';
 const ASSETS = ['./', 'index.html', 'privacy.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'about.html', 'lib/mqtt.min.js', 'lib/qrcode.js', 'js/core.js', 'js/scenarios.js', 'js/corecases.js', 'js/monitor.js', 'js/controller.js'];
 

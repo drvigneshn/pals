@@ -17,7 +17,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await ctl.click('[data-tab="tabScen"]');
   const list = await ctl.textContent('#tabScen');
   ok(/IAP ALS core cases/.test(list) && /Core case 1: Upper airway obstruction/.test(list) && /Core case 12: VF \/ VT/.test(list), 'core-case group listed first');
-  ok((await ctl.$$eval('[data-sc^="ia"]', e => e.length)) === 11, '11 core cases present');
+  ok((await ctl.$$eval('[data-sc^="ia"]', e => e.length)) === 12, '12 core cases present');
   // Case 9 SVT, ward setting
   await ctl.click('[data-sc="ia9"]');
   await ctl.click('#segSet [data-set="1"]');
