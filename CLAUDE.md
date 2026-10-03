@@ -18,6 +18,11 @@ Dr Radhika Raman, Senior Consultant, KKCTH.
   energies, `PC.defaultState()`, and `PC.Link` (pairing).
 - `js/scenarios.js` — `PC.SCENARIOS` (stages, instructor cues, expected-action checklists). `{adr}`, `{J2}` etc. are
   filled with the patient's weight by `PC.fillDoses`.
+- `js/corecases.js` — IAP ALS core cases 1–5, 7–12 (case 6 still to add), prepended to `PC.SCENARIOS`. Written in our own
+  words, labelled "Based on the IAP ALS core-case format". Fields: `settings` (ER/ward/ICU stems → `sc.setting`,
+  sets bed label), stage `block`, `findings` [label,text], `identify` (ticks `i:iJ`), `expect` (ticks `i:J`),
+  `result` {title,text} (button shows it on the monitor). Debrief scores Identify and Intervene separately.
+  Token `{ml20}` = 20 mL/kg in mL. Weights are assumed for age.
 - `js/monitor.js` — the monitor engine (`PC.Monitor`).
 - `js/controller.js` — the instructor UI (`PC.Controller`) and `boot()` routing (chooser / `#monitor=CODE` / `#control=CODE`).
 - `lib/mqtt.min.js` (mqtt 5.16.0), `lib/qrcode.js` (qrcode-generator 1.4.4) — vendored so the app works offline.
@@ -29,7 +34,7 @@ Dr Radhika Raman, Senior Consultant, KKCTH.
 Bump in ALL places, keep in sync:
 1. `PC.VERSION` in `js/core.js` (shown on the chooser and in Setup → About)
 2. `CACHE` in `sw.js` (`'pals-vX.Y.Z'`) — this is what pushes updates to installed users; never skip it.
-Small change → patch; new feature → minor. Current: **v0.3.0**. The version shows on the landing footer, disclaimer gate, monitor footer,
+Small change → patch; new feature → minor. Current: **v0.4.0**. The version shows on the landing footer, disclaimer gate, monitor footer,
 instructor footer, About and Privacy (all read `PC.VERSION`).
 
 ## Attribution on commits
@@ -89,6 +94,7 @@ Browser checks (Playwright + pre-installed Chromium):
 ```bash
 cd test && npm install && node servers.js &   # MQTT-over-WS broker :8888 + static app server :8080
 node sync.js     # two isolated browsers paired via relay: VF alarm, CPR HR/EtCO2, shock, ROSC, vitals, scenario, leads off
+node v4.js       # core cases: settings, findings, identify/intervene ticks, result card, debrief split
 node v3.js       # credits, start screen, Exit/Back, BP follows stages/ROSC/arrest, breathing, arrest panel
 node v2.js       # gate, landing/footer/version, quick actions, surprise (tube), exam mode, CPR panel, debrief
 node robust.js   # clock skew between devices, phone wake-up, two instructor screens, Apply + auto NIBP
@@ -98,6 +104,7 @@ node icons.js    # re-render icon PNGs from icon.svg
 Screenshots land in `test/shots/` (git-ignored).
 
 ## Open items (remind the owner until done)
+- [ ] Add IAP ALS core case 6 (page not received yet). Check IAP permission for publishing the core cases.
 - [ ] Owner to verify all doses, joules and scenario cue text against current AHA PALS / IAP guidance and unit protocol.
 - [x] GitHub Pages + Hostinger CNAME + HTTPS enforced — site confirmed working at https://pals.pediaos.com (26 Sep 2026).
 - [ ] Real-world test: phone ↔ projector laptop on hospital Wi-Fi via the public relays.

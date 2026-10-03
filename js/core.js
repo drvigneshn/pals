@@ -3,7 +3,7 @@
 (() => {
 'use strict';
 const PC = window.PC = {};
-PC.VERSION = 'v0.3.0';
+PC.VERSION = 'v0.4.0';
 
 /* ---------- small helpers ---------- */
 PC.$ = (s, r = document) => r.querySelector(s);
@@ -102,6 +102,7 @@ PC.joules = (per, w) => Math.max(1, Math.min(Math.round(per * w), 200));
 /* Replace {adr}, {amio}, … in scenario text with the weight-based dose. {J2} → joules at 2 J/kg. */
 PC.fillDoses = (text, w) => String(text)
   .replace(/\{J([\d.]+)\}/g, (_, p) => PC.joules(parseFloat(p), w) + ' J')
+  .replace(/\{ml([\d.]+)\}/g, (_, p) => Math.round(parseFloat(p) * w) + ' mL')
   .replace(/\{(\w+)\}/g, (m, k) => { const d = PC.DOSES.find(x => x.key === k); return d ? d.calc(w) : m; });
 
 /* ---------- the one shared state object (instructor owns it) ---------- */

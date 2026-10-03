@@ -258,7 +258,8 @@ function startScenario(at = 0) {
   sc.stage = -1; sc.ticks = {}; sc.visited = []; sc.ended = false;
   const keep = { monTheme: S.monTheme, beep: S.beep, alarms: S.alarms, exam: S.exam, cprBar: S.cprBar, nibpAt: S.nibpAt, shockAt: S.shockAt, silenceAt: S.silenceAt };
   S = Object.assign(PC.defaultState(), keep, { pt: Object.assign({}, s.pt) });
-  addLog('Scenario started: ' + s.title, 'stage');
+  if (s.settings) { const st = s.settings[sc.setting || 0] || s.settings[0]; S.pt.bed = st[0]; }
+  addLog('Scenario started: ' + s.title + (s.settings ? ' (' + (s.settings[sc.setting || 0] || s.settings[0])[1] + ')' : ''), 'stage');
   loadStage(at, 0);
 }
 function loadStage(i, rampOverride) {
@@ -280,12 +281,22 @@ function endScenario() {
   addLog(`Scenario ended · checklist ${sco.done}/${sco.total}`, 'stage');
   save(); renderScen(); showTab('tabDeb');
 }
-function score() {
-  const s = scen(); if (!s) return { done: 0, total: 0 };
-  let done = 0, total = 0;
-  for (const i of sc.visited) (s.stages[i].expect || []).forEach((_, j) => { total++; if (sc.ticks[i + ':' + j]) done++; });
-  return { done, total };
+/* Checklist items of a stage: "Identify" items (core cases) then interventions. Tick ids: `i:iJ` and `i:J`. */
+function items(s, i) {
+  const st = s.stages[i];
+  return (st.identify || []).map((x, j) => ({ id: i + ':i' + j, text: x, kind: 'Identify' }))
+    .concat((st.expect || []).map((x, j) => ({ id: i + ':' + j, text: x, kind: 'Intervene' })));
 }
+function score() {
+  const s = scen(); if (!s) return { done: 0, total: 0, id: [0, 0], iv: [0, 0] };
+  const r = { done: 0, total: 0, id: [0, 0], iv: [0, 0] };
+  for (const i of sc.visited) items(s, i).forEach(x => {
+    const k = x.kind === 'Identify' ? r.id : r.iv, ok = !!sc.ticks[x.id];
+    r.total++; k[1]++; if (ok) { r.done++; k[0]++; }
+  });
+  return r;
+}
+const stemOf = s => s.settings ? (s.settings[sc.setting || 0] || s.settings[0])[2] : s.stem;
 
 /* ---------- building the tabs ---------- */
 function segHTML(id, opts, cur) {
@@ -418,11 +429,11 @@ function renderScen() {
   if (scList || !s) {
     const cats = [...new Set(PC.SCENARIOS.map(x => x.cat))];
     el.innerHTML = `<div class="card"><h3>Scenarios</h3><p class="note" style="margin:0">Pick one to see the stem, stages and checklist. Cues and doses are shown only here, never on the monitor.</p></div>` +
-      cats.map(c => `<div class="card"><h3>${esc(c)}</h3><div style="display:flex;flex-direction:column;gap:8px">${
+      cats.map(c => `<div class="card"><h3>${esc(c)}</h3>${c === 'IAP ALS core cases' ? '<p class="note" style="margin:-4px 0 10px">Based on the IAP ALS core-case format (Evaluate → Identify → Intervene), written for this app. Choose ER, ward or ICU inside each case.</p>' : ''}<div style="display:flex;flex-direction:column;gap:8px">${
         PC.SCENARIOS.filter(x => x.cat === c).map(x => `<button class="scen" data-sc="${x.id}"><b>${esc(x.title)}${x.id === sc.id ? ' · <span style="color:var(--acc)">current</span>' : ''}</b><span>${esc(x.pt.age)} · ${x.pt.wt} kg · ${x.stages.length} stages</span></button>`).join('')
       }</div></div>`).join('');
     el.onclick = e => { const b = e.target.closest('[data-sc]'); if (!b) return;
-      if (b.dataset.sc !== sc.id) { sc = { id: b.dataset.sc, stage: -1, ticks: {}, visited: [], ended: false }; }
+      if (b.dataset.sc !== sc.id) { sc = { id: b.dataset.sc, stage: -1, ticks: {}, visited: [], ended: false, setting: 0 }; }
       scList = false; save(); renderScen(); window.scrollTo(0, 0); };
     return;
   }
@@ -438,25 +449,33 @@ function renderScen() {
   <button class="btn" data-back="1" style="align-self:flex-start">← All scenarios</button>
   <div class="card"><h3><span><span class="tagc">${esc(s.cat)}</span>${esc(s.pt.age)} · ${s.pt.wt} kg</span></h3>
     <b style="font-size:18px">${esc(s.title)}</b>
-    <div class="stem" style="margin:10px 0"><div class="note" style="margin-bottom:4px">Read to the team</div>${esc(s.stem)}</div>
+    ${s.settings && s.settings.length > 1 ? `<div class="rowf" style="margin-top:10px"><span class="note">Setting</span><div class="seg" id="segSet">${s.settings.map((x, k) => `<button data-set="${k}" class="${k === (sc.setting || 0) ? 'on' : ''}">${esc(x[1])}</button>`).join('')}</div></div>` : ''}
+    <div class="stem" style="margin:10px 0"><div class="note" style="margin-bottom:4px">Read to the team</div>${esc(stemOf(s))}</div>
     <button class="btn ${running ? '' : 'pri big'}" data-start="1" style="width:100%">${running ? '↺ Restart scenario' : sc.ended ? '↺ Run again' : '▶ Start scenario'}</button>
   </div>
   ${cur ? `<div class="card" style="border-color:var(--acc)"><h3>Stage ${sc.stage + 1} of ${s.stages.length}${sc.ended ? ' · ended' : ''}</h3>
-    <b style="font-size:17px">${esc(cur.name)}</b>
+    <b style="font-size:17px">${cur.block ? `<span class="blk">${esc(cur.block)}</span>` : ''}${esc(cur.name)}</b>
     <ul class="cues">${(cur.cues || []).map(c => `<li>${fill(c)}</li>`).join('')}</ul>
-    ${(cur.expect || []).length ? `<div class="note" style="margin:10px 0 2px">Tick what the team does</div>` + cur.expect.map((x, j) => {
-      const id = sc.stage + ':' + j;
-      return `<label class="chk"><input type="checkbox" data-tick="${id}" ${sc.ticks[id] ? 'checked' : ''}><span>${fill(x)}</span></label>`;
-    }).join('') : ''}
+    ${cur.findings ? `<div class="note" style="margin:8px 0 0">Evaluate: findings to give when the team assesses</div><dl class="fnd">${cur.findings.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${fill(v)}</dd>`).join('')}</dl>` : ''}
+    ${cur.result ? `<button class="btn" data-result="1" style="margin:6px 0">Show “${esc(cur.result.title)}” on the monitor</button>` : ''}
+    ${['Identify', 'Intervene'].map(kind => {
+      const list = items(s, sc.stage).filter(x => x.kind === kind);
+      if (!list.length) return '';
+      const head = kind === 'Identify' ? 'Identify: did the team name it?' : (cur.identify ? 'Intervene: tick what the team does' : 'Tick what the team does');
+      return `<div class="note" style="margin:10px 0 2px"><b>${head}</b></div>` + list.map(x => `<label class="chk"><input type="checkbox" data-tick="${x.id}" ${sc.ticks[x.id] ? 'checked' : ''}><span>${fill(x.text)}</span></label>`).join('');
+    }).join('')}
     <div class="rowf" style="margin-top:12px">${nextBtns}</div>
   </div>` : ''}
   <div class="card"><h3>Stages <span class="note">tap to jump</span></h3><div style="display:flex;flex-direction:column;gap:8px">${
-    s.stages.map((st, i) => `<button class="stage${i === sc.stage ? ' cur' : ''}" data-go="${i}"><span class="n">${i + 1}</span><span><b>${esc(st.name)}</b><div class="d">${esc(stageSummary(st))}</div></span></button>`).join('')
+    s.stages.map((st, i) => `<button class="stage${i === sc.stage ? ' cur' : ''}" data-go="${i}"><span class="n">${i + 1}</span><span><b>${st.block ? `<span class="blk">${esc(st.block)}</span>` : ''}${esc(st.name)}</b><div class="d">${esc(stageSummary(st))}</div></span></button>`).join('')
   }</div></div>`;
   el.onclick = e => {
     const t = e.target;
     if (t.closest('[data-back]')) { scList = true; renderScen(); window.scrollTo(0, 0); return; }
     if (t.closest('[data-start]')) { startScenario(); return; }
+    const ss = t.closest('[data-set]');
+    if (ss) { sc.setting = Number(ss.dataset.set); save(); renderScen(); return; }
+    if (t.closest('[data-result]') && cur && cur.result) { S.reveal = { on: true, title: cur.result.title, text: cur.result.text }; addLog('Result shown: ' + cur.result.title, 'event'); send(); PC.toast('Shown on the monitor'); return; }
     if (t.closest('[data-end]')) { if (confirm('End the scenario and stop the clock?')) endScenario(); return; }
     const g = t.closest('[data-go]');
     if (g) {
@@ -468,8 +487,8 @@ function renderScen() {
   el.onchange = e => {
     const c = e.target.closest('[data-tick]'); if (!c) return;
     const id = c.dataset.tick; sc.ticks[id] = c.checked ? Date.now() : 0;
-    const [i, j] = id.split(':').map(Number);
-    if (c.checked) addLog('✓ ' + PC.fillDoses(s.stages[i].expect[j], w), 'tick'); else save();
+    const i = Number(id.split(':')[0]), it = items(s, i).find(x => x.id === id);
+    if (c.checked && it) addLog('✓ ' + (it.kind === 'Identify' && s.stages[i].identify ? 'Identified: ' : '') + PC.fillDoses(it.text, w), 'tick'); else save();
   };
 }
 function stageSummary(st) {
@@ -553,7 +572,7 @@ function copyLog() {
   log.forEach(l => lines.push(`[${logRel(l.at)}] ${l.txt}`));
   if (s && sc.visited.length) {
     const sco = score(); lines.push('', `Checklist ${sco.done}/${sco.total}`);
-    sc.visited.forEach(i => (s.stages[i].expect || []).forEach((x, j) => lines.push(`${sc.ticks[i + ':' + j] ? '✓' : '✗'} ${PC.fillDoses(x, s.pt.wt)}`)));
+    sc.visited.forEach(i => items(s, i).forEach(x => lines.push(`${sc.ticks[x.id] ? '✓' : '✗'} ${s.stages[i].identify ? x.kind + ': ' : ''}${PC.fillDoses(x.text, s.pt.wt)}`)));
   }
   const txt = lines.join('\n');
   (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => PC.toast('Log copied'), () => { prompt('Copy the log:', txt); });
@@ -606,7 +625,11 @@ function computeDebrief() {
   const drugs = ev.filter(e => e.type === 'drug');
   if (drugs.length) m.push(['Drugs logged', String(drugs.length), '', [...new Set(drugs.map(e => (PC.DOSES.find(d => d.key === e.key) || {}).name))].join(', ')]);
   const sco = score();
-  if (sco.total) { const pc = sco.done / sco.total; m.push(['Checklist', `${sco.done} / ${sco.total}`, pc >= 0.8 ? 'g' : pc >= 0.6 ? 'a' : 'r', Math.round(pc * 100) + ' %']); }
+  const tone = (a, b) => b ? (a / b >= 0.8 ? 'g' : a / b >= 0.6 ? 'a' : 'r') : '';
+  if (sco.id[1]) {
+    m.push(['Identify', `${sco.id[0]} / ${sco.id[1]}`, tone(sco.id[0], sco.id[1]), 'named correctly']);
+    m.push(['Intervene', `${sco.iv[0]} / ${sco.iv[1]}`, tone(sco.iv[0], sco.iv[1]), 'actions done']);
+  } else if (sco.total) { const pc = sco.done / sco.total; m.push(['Checklist', `${sco.done} / ${sco.total}`, tone(sco.done, sco.total), Math.round(pc * 100) + ' %']); }
   const start = T.startAt || (log[0] ? log[0].at : end);
   if (log.length) m.unshift(['Session time', PC.mmss(end - start), '', T.endAt ? 'ended' : 'running']);
   const tl = log.filter(l => DEB_KINDS.has(l.kind) || /^Scenario|^Stage/.test(l.txt)).map(l => [logRel(l.at), l.txt, l.kind]);
@@ -644,7 +667,7 @@ function renderDeb() {
     : '<p class="note" style="margin:0">Run a scenario (or use the Live tab) and the debrief builds itself: time to CPR, first shock, adrenaline timing, CPR fraction, hands-off time and the full timeline.</p>';
   if (!D.arrest && D.m.length) $('#debMet').insertAdjacentHTML('beforeend', '<p class="note" style="grid-column:1/-1;margin:4px 0 0">No cardiac arrest in this session, so arrest timings are not shown.</p>');
   const chk = [];
-  if (s) sc.visited.forEach(i => (s.stages[i].expect || []).forEach((x, j) => chk.push(`<div class="chk"><span>${sc.ticks[i + ':' + j] ? '✅' : '❌'}</span><span>${esc(PC.fillDoses(x, s.pt.wt))} <span class="note">· stage ${i + 1}</span></span></div>`)));
+  if (s) sc.visited.forEach(i => items(s, i).forEach(x => chk.push(`<div class="chk"><span>${sc.ticks[x.id] ? '✅' : '❌'}</span><span>${s.stages[i].identify ? `<b>${x.kind}:</b> ` : ''}${esc(PC.fillDoses(x.text, s.pt.wt))} <span class="note">· ${esc(s.stages[i].block || 'stage ' + (i + 1))}</span></span></div>`)));
   $('#debChk').innerHTML = chk.join('');
   $('#debChkCard').classList.toggle('hide', !chk.length);
   $('#debTl').innerHTML = D.tl.length ? D.tl.map(([t, x, k]) => `<li class="k-${k}"><i>${t}</i>${esc(x)}</li>`).join('') : '<li class="note">No events yet.</li>';
